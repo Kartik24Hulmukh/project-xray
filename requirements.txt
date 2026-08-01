@@ -7,7 +7,7 @@ psycopg2-binary>=2.9,<3
 
 # AWS SigV4, ECS task-role/default credential chain, and refreshable
 # credentials for managed S3 evidence storage.
-botocore>=1.34,<2
+botocore>=1.43.58,<2
 
 # Development / testing (optional)
 # pytest>=8.0  # Alternative test runner, not required (unittest is used)

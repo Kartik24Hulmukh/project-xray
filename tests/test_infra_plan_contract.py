@@ -234,45 +234,31 @@ class TestSecurityPoliciesUnchanged(unittest.TestCase):
         self.assertIn('sha256:[0-9a-f]{64}', text)
 
 
-class TestGrypeExceptionsUnchanged(unittest.TestCase):
-    """Test 10: three Python CVE exceptions and expiry remain unchanged."""
+class TestGrypeNoExpiredWaivers(unittest.TestCase):
+    """Expired risk acceptance must not be preserved by regression tests."""
 
-    APPROVED_CVES = {'CVE-2026-11940', 'CVE-2026-15308', 'CVE-2026-11972'}
+    def test_expired_exception_file_removed(self):
+        self.assertFalse(GRYPE_EXCEPTIONS.exists())
 
-    def test_grype_exceptions_file_exists(self):
-        self.assertTrue(GRYPE_EXCEPTIONS.exists())
+    def test_active_config_has_no_ignored_cves(self):
+        self.assertFalse(re.findall(r'CVE-\d{4}-\d+', GRYPE_CONFIG.read_text()))
 
-    def test_exactly_three_cves(self):
-        text = GRYPE_EXCEPTIONS.read_text()
-        cves = set(re.findall(r'CVE-\d{4}-\d+', text))
-        self.assertEqual(len(cves), 3,
-                         f'Expected exactly 3 CVEs, found {len(cves)}: {cves}')
+    def test_empty_ignore_policy_explicit(self):
+        self.assertIn('ignore: []', GRYPE_CONFIG.read_text())
 
-    def test_cves_match_approved_set(self):
-        text = GRYPE_EXCEPTIONS.read_text()
-        cves = set(re.findall(r'CVE-\d{4}-\d+', text))
-        self.assertEqual(cves, self.APPROVED_CVES,
-                         f'CVEs must be exactly {self.APPROVED_CVES}, found {cves}')
+    def test_no_package_version_suppression(self):
+        self.assertNotIn('version:', GRYPE_CONFIG.read_text())
 
-    def test_expiry_date_2026_08_18(self):
-        text = GRYPE_EXCEPTIONS.read_text()
-        self.assertIn('2026-08-18', text,
-                      'Expiry date must be 2026-08-18')
-
-    def test_python_version_3_13_14(self):
-        text = GRYPE_EXCEPTIONS.read_text()
-        self.assertIn('3.13.14', text)
-
-    def test_grype_config_matches_exceptions(self):
-        """The .grype.yaml config must match the exception file."""
-        config_text = GRYPE_CONFIG.read_text()
-        cves = set(re.findall(r'CVE-\d{4}-\d+', config_text))
-        self.assertEqual(cves, self.APPROVED_CVES)
-
-    def test_grype_checker_enforces_three_cve_max(self):
+    def test_checker_remains_fail_closed_for_expiry(self):
         text = GRYPE_CHECKER.read_text()
-        self.assertIn('MAX_CVES = 3', text)
-        self.assertIn('APPROVED_CVES', text)
+        self.assertIn('now > EXPIRY_DATE', text)
+        self.assertIn('return 1', text)
+
+    def test_checker_rejects_unapproved_cves(self):
+        self.assertIn('unapproved = cves - APPROVED_CVES', GRYPE_CHECKER.read_text())
+
+    def test_grype_checker_retains_review_limit(self):
+        self.assertIn('MAX_CVES = 3', GRYPE_CHECKER.read_text())
 
 
 if __name__ == '__main__':

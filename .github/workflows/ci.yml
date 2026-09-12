@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install Node dependencies
-        run: npm install
+        run: npm ci
       - name: Unit and integration tests
         run: python3 -m unittest discover -s tests -v
       - name: Repository security contracts
@@ -31,6 +31,8 @@ jobs:
           python3 scripts/check_grype_exceptions.py
       - name: Synthetic production rehearsal
         run: python3 scripts/rehearse_production.py
+      - name: Local synthetic load regression
+        run: python3 scripts/stress_local.py
       - name: Synthetic smoke
         run: python3 scripts/smoke_e2e.py
       - name: Release checks
@@ -80,4 +82,28 @@ jobs:
           print('schema applied')
           PY
       - name: Live PostgreSQL tests
-        run: python3 -m unittest tests.test_postgres_live -v
+        run: |
+          python3 -m unittest discover -s tests -p 'test_postgres_live.py' -v
+          python3 -m unittest discover -s tests -p 'test_postgres_concurrency.py' -v
+
+  container-smoke:
+    name: container-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Build actual runtime image
+        run: docker build -t xray-smoke .
+      - name: Verify packaged dashboard and recovery module
+        run: |
+          set -eu
+          docker run -d --name xray-smoke -p 127.0.0.1:18080:8080 xray-smoke
+          trap 'docker logs xray-smoke; docker rm -f xray-smoke' EXIT
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18080/ready; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/ready
+          curl -fsS http://127.0.0.1:18080/ | grep 'Project X-Ray'
+          curl -fsS http://127.0.0.1:18080/app.js | grep 'loadProjects'
+          curl -fsS http://127.0.0.1:18080/styles.css > /dev/null
+          docker exec xray-smoke python3 -c 'import sys; sys.path.insert(0,"scripts"); import smoke_e2e'

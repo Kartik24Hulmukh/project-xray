@@ -1,0 +1,20 @@
+{
+  "scope": "local PostgreSQL 16.4 disposable DB",
+  "clients": 100,
+  "requests": 300,
+  "seconds": 1.549,
+  "statuses": {
+    "201": 300
+  },
+  "p95_ms": 783.31,
+  "readiness_after": 200,
+  "before_fix": {
+    "clients": 30,
+    "requests": 100,
+    "statuses": {
+      "201": 35,
+      "500": 65
+    },
+    "readiness_after": 503
+  }
+}

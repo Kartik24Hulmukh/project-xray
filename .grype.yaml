@@ -1,21 +1,3 @@
-# Grype configuration — loads narrow exception file.
-# This file is automatically discovered by Grype in the working directory.
-# The ignore rules target only the three accepted Python runtime CVEs.
-# See security/grype-exceptions.yaml for the full justification and metadata.
-
-ignore:
-  - vulnerability: CVE-2026-11940
-    package:
-      name: python
-      version: 3.13.14
-      type: binary
-  - vulnerability: CVE-2026-15308
-    package:
-      name: python
-      version: 3.13.14
-      type: binary
-  - vulnerability: CVE-2026-11972
-    package:
-      name: python
-      version: 3.13.14
-      type: binary
+# No vulnerability suppressions. Expired July/August risk acceptance removed.
+# High/critical findings must fail CI until fixed or reviewed by a human.
+ignore: []

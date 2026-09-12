@@ -120,3 +120,13 @@ than claiming guaranteed growth.
    handled as an incident, not silently repaired.
 5. Open public access only after the operator/editorial gates above have owners
    and verified receipts. Never equate passing this test suite with certification.
+
+## GitHub CI follow-up
+
+PR #30: https://github.com/Kartik24Hulmukh/project-xray/pull/30
+
+The first remote security job failed before scanning because inherited Grype
+waivers expired on 18 August 2026. The expired waiver file and active ignores
+were removed, **not renewed or broadened**. Scanner findings remain blocking;
+no vulnerabilities are represented as fixed merely by removing an exception.
+Remote CI status must be checked on the final commit before merge.

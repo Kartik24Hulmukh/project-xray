@@ -284,11 +284,22 @@ class CursorAdapter:
                 raise IntegrityError(str(e))
             if HAS_PSYCOPG2 and isinstance(e, psycopg2.IntegrityError):
                 raise IntegrityError(str(e))
+            if isinstance(e, sqlite3.OperationalError) and ('locked' in str(e).lower() or 'busy' in str(e).lower()):
+                raise DatabaseBusy('database is busy, retry') from e
             raise
         return self
 
     def executemany(self, query, params_seq):
-        self._cursor.executemany(_convert_sql(query), params_seq)
+        try:
+            self._cursor.executemany(_convert_sql(query), params_seq)
+        except Exception as e:
+            if isinstance(e, sqlite3.IntegrityError):
+                raise IntegrityError(str(e))
+            if HAS_PSYCOPG2 and isinstance(e, psycopg2.IntegrityError):
+                raise IntegrityError(str(e))
+            if isinstance(e, sqlite3.OperationalError) and ('locked' in str(e).lower() or 'busy' in str(e).lower()):
+                raise DatabaseBusy('database is busy, retry') from e
+            raise
 
     def executescript(self, script):
         if IS_POSTGRES:
@@ -338,7 +349,12 @@ class ConnectionAdapter:
         return CursorAdapter(cur)
 
     def commit(self):
-        self._conn.commit()
+        try:
+            self._conn.commit()
+        except Exception as e:
+            if isinstance(e, sqlite3.OperationalError) and ('locked' in str(e).lower() or 'busy' in str(e).lower()):
+                raise DatabaseBusy('database is busy, retry') from e
+            raise
 
     def rollback(self):
         self._conn.rollback()
@@ -416,7 +432,9 @@ def connect(path=None):
         conn = sqlite3.connect(str(p), timeout=10, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
-        conn.execute('PRAGMA busy_timeout=5000')
+        conn.execute('PRAGMA busy_timeout=10000')
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA synchronous=NORMAL')
         return ConnectionAdapter(conn)
 
 

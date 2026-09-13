@@ -1,4 +1,4 @@
-import ast,json,shutil,tempfile,unittest
+import ast,json,os,shutil,tempfile,unittest
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -63,7 +63,7 @@ def _load_browser_preflight():
     import subprocess as _sp
     for node in TREE.body:
         if isinstance(node,ast.FunctionDef) and node.name=='browser_binary_preflight':
-            ns={'shutil':shutil,'Path':Path,'json':json,'subprocess':_sp,'BROWSER_REMEDIATION':'npx playwright install chromium','BROWSER_PROBE':''}
+            ns={'shutil':shutil,'Path':Path,'json':json,'os':os,'subprocess':_sp,'BROWSER_REMEDIATION':'npx playwright install chromium','BROWSER_PROBE':''}
             exec(compile(ast.Module(body=[node],type_ignores=[]),str(SCRIPT),'exec'),ns)
             return ns['browser_binary_preflight']
     raise AssertionError('browser_binary_preflight is missing from scripts/check_release.py')
@@ -90,6 +90,26 @@ class BrowserBinaryPreflightContract(unittest.TestCase):
         self.assertEqual(len(problems),1)
         self.assertIn('ms-playwright',problems[0])
         self.assertIn('playwright install chromium',problems[0])
+
+    def test_chromium_path_contract_matches_ui_acceptance(self):
+        """scripts/ui_acceptance.mjs launches CHROMIUM_PATH when set, so the
+        preflight must judge that binary, not Playwright's download cache."""
+        preflight=_load_browser_preflight()
+        def explode(*a,**k):
+            raise AssertionError('Playwright cache probe must not run when CHROMIUM_PATH is set')
+        with tempfile.NamedTemporaryFile() as binary:
+            self.assertEqual(preflight(ROOT,runner=explode,env={'CHROMIUM_PATH':binary.name}),[])
+        problems=preflight(ROOT,runner=explode,env={'CHROMIUM_PATH':'/nonexistent/chromium'})
+        self.assertEqual(len(problems),1)
+        self.assertIn('/nonexistent/chromium',problems[0])
+        self.assertIn('playwright install chromium',problems[0])
+        # Empty/whitespace CHROMIUM_PATH falls back to the Playwright probe.
+        self.assertEqual(preflight(ROOT,runner=lambda *a,**k:_Completed(0),env={'CHROMIUM_PATH':'  '}),[])
+
+    def test_ci_provisions_the_browser_the_gate_demands(self):
+        workflow=(ROOT/'.github'/'workflows'/'ci.yml').read_text()
+        self.assertIn('npx playwright install --with-deps chromium',workflow)
+        self.assertLess(workflow.index('npx playwright install'),workflow.index('scripts/check_release.py'))
 
     def test_playwright_undeclared_is_not_an_environment_fault(self):
         preflight=_load_browser_preflight()

@@ -284,6 +284,12 @@ class _FencingCases:  # merged into TestIdempotencyRecovery below (shares its se
         self.assertEqual(code_r, 201)
         self.assertEqual(body_r['id'], body_b['id'])
 
+    def test_reclaim_delete_is_fenced_statement_level(self):
+        source = Path(server.__file__).read_text()
+        self.assertIn("AND state='processing' AND created_at=?", source)
+        self.assertIn("if deleted.rowcount == 1:", source)
+
+
     def test_stuck_ttl_is_clamped_to_safe_floor(self):
         self.assertGreaterEqual(server.IDEMPOTENCY_STUCK_SECONDS, server.IDEMPOTENCY_STUCK_FLOOR_SECONDS)
         for raw in ('0', '-5', '1', 'garbage', None, ''):

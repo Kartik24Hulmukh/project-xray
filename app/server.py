@@ -424,7 +424,7 @@ def evidence_envelope_from_claim(claim):
         'derivation': {
             'kind': 'snapshot',
             'tool': 'project-xray',
-            'version': '0.4.4',
+            'version': '0.4.6',
             'parent_sha256': None,
         },
         'anchors': [anchor_from_claim(claim)],
@@ -765,54 +765,70 @@ class H(BaseHTTPRequestHandler):
             self.out({'error': 'invalid Idempotency-Key'}, 400)
             return False
         request_hash = hashlib.sha256(
-            (
-                self.command
-                + '|'
-                + urlparse(self.path).path
-                + '|'
-                + json.dumps(data, sort_keys=True, separators=(',', ':'))
-            ).encode()
+            (self.command + '|' + urlparse(self.path).path + '|' +
+             json.dumps(data, sort_keys=True, separators=(',', ':'))).encode()
         ).hexdigest()
-        with db(True) as c:
-            old = c.execute(
-                'SELECT * FROM idempotency_keys WHERE principal=? AND key=?',
-                (actor, key),
-            ).fetchone()
-            if old:
-                age = idempotency_age_seconds(old['created_at'])
-                stuck = (
-                    old['state'] == 'processing'
-                    and age is not None
-                    and age > IDEMPOTENCY_STUCK_SECONDS
+
+        def answer_existing(old):
+            _metric_inc('idempotency_conflicts')
+            if old['request_hash'] != request_hash:
+                self.out({'error': 'idempotency key reused with different request'}, 409)
+                return False
+            if old['state'] == 'completed':
+                _metric_inc('idempotency_replays')
+                self.common(old['response_code'], 'application/json; charset=utf-8')
+                self.wfile.write(old['response_body'].encode())
+                return False
+            self.out({'error': 'request with this idempotency key is processing'}, 409,
+                     extra_headers={'Retry-After': '1'})
+            return False
+
+        reserved_at = now()
+        try:
+            with db(True) as c:
+                old = c.execute(
+                    'SELECT * FROM idempotency_keys WHERE principal=? AND key=?',
+                    (actor, key),
+                ).fetchone()
+                if old:
+                    age = idempotency_age_seconds(old['created_at'])
+                    stuck = (old['state'] == 'processing' and age is not None and
+                             age > IDEMPOTENCY_STUCK_SECONDS)
+                    if stuck:
+                        # Fence reclaim to the lease we observed. Without this
+                        # predicate a losing reclaimer can delete a fresh lease.
+                        deleted = c.execute(
+                            "DELETE FROM idempotency_keys WHERE principal=? AND key=? "
+                            "AND state='processing' AND created_at=?",
+                            (actor, key, old['created_at']),
+                        )
+                        if deleted.rowcount == 1:
+                            _metric_inc('idempotency_stuck_reclaims')
+                            audit(c, actor, 'reclaim', 'idempotency_key', key,
+                                  f'age_seconds={int(age)}')
+                        else:
+                            # Serialisation was relaxed and another worker won.
+                            # Let INSERT contention below resolve truthfully.
+                            pass
+                    else:
+                        return answer_existing(old)
+                c.execute(
+                    'INSERT INTO idempotency_keys(principal,key,request_hash,state,created_at) '
+                    'VALUES(?,?,?,?,?)',
+                    (actor, key, request_hash, 'processing', reserved_at),
                 )
-                if stuck:
-                    # The worker that owned this reservation died before it
-                    # could record an outcome (crash, OOM, commit failure).
-                    # Reclaim it so clients are not poisoned forever; the
-                    # reclaim is recorded in the hash-chained audit ledger.
-                    _metric_inc('idempotency_stuck_reclaims')
-                    c.execute(
-                        "DELETE FROM idempotency_keys WHERE principal=? AND key=? AND state='processing'",
-                        (actor, key),
-                    )
-                    audit(c, actor, 'reclaim', 'idempotency_key', key, f'age_seconds={int(age)}')
-                else:
-                    _metric_inc('idempotency_conflicts')
-                    if old['request_hash'] != request_hash:
-                        self.out({'error': 'idempotency key reused with different request'}, 409)
-                        return False
-                    if old['state'] == 'completed':
-                        _metric_inc('idempotency_replays')
-                        self.common(old['response_code'], 'application/json; charset=utf-8')
-                        self.wfile.write(old['response_body'].encode())
-                        return False
-                    self.out({'error': 'request with this idempotency key is processing'}, 409)
-                    return False
-            reserved_at = now()
-            c.execute(
-                'INSERT INTO idempotency_keys(principal,key,request_hash,state,created_at) VALUES(?,?,?,?,?)',
-                (actor, key, request_hash, 'processing', reserved_at),
-            )
+        except IntegrityError:
+            # Read-then-insert can race if backend serialisation is ever relaxed.
+            # The failed transaction is gone; inspect the winner afresh rather
+            # than surfacing an opaque 500.
+            with db() as c:
+                winner = c.execute(
+                    'SELECT * FROM idempotency_keys WHERE principal=? AND key=?',
+                    (actor, key),
+                ).fetchone()
+            if winner:
+                return answer_existing(winner)
+            raise
         self.idem = (actor, key, reserved_at)
         return True
 
@@ -851,7 +867,7 @@ class H(BaseHTTPRequestHandler):
             return self.out({'error': 'rate limit exceeded'}, 429)
 
         if path == '/health':
-            return self.out({'status': 'ok', 'time': now(), 'version': '0.4.4'})
+            return self.out({'status': 'ok', 'time': now(), 'version': '0.4.6'})
         if path == '/ready':
             if not capability_policy.valid or capability_policy.maintenance:
                 return self.out(
@@ -1499,5 +1515,5 @@ class BoundedHTTPServer(ThreadingHTTPServer):
 
 if __name__ == '__main__':
     init()
-    print(json.dumps({'event': 'startup', 'service': 'project-xray', 'version': '0.4.4', 'port': PORT, 'environment': ENV}))
+    print(json.dumps({'event': 'startup', 'service': 'project-xray', 'version': '0.4.6', 'port': PORT, 'environment': ENV}))
     BoundedHTTPServer((os.getenv('BIND_HOST', '127.0.0.1'), PORT), H).serve_forever()

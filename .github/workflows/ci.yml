@@ -85,6 +85,8 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p 'test_postgres_live.py' -v
           python3 -m unittest discover -s tests -p 'test_postgres_concurrency.py' -v
+          python3 -m unittest discover -s tests -p 'test_idempotency_recovery.py' -v
+          python3 -m unittest discover -s tests -p 'test_postgres_fencing.py' -v
 
   container-smoke:
     name: container-smoke

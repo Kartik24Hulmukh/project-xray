@@ -1,5 +1,5 @@
 from pathlib import Path
-import subprocess,sys,re
+import json,shutil,subprocess,sys,re
 root=Path(__file__).resolve().parents[1]
 required=['README.md','AGENTS.md','LICENSE','SECURITY.md','CONTRIBUTING.md','CODE_OF_CONDUCT.md','docs/ROADMAP_72_HOURS.md','docs/ACCEPTANCE_CRITERIA.md','docs/EVIDENCE_POLICY.md','docs/THREAT_MODEL.md','Dockerfile','docker-compose.yml','app/server.py','tests/test_api.py','db/schema.sql']
 missing=[x for x in required if not (root/x).exists()]
@@ -19,6 +19,27 @@ compile_result=subprocess.run([sys.executable,'-m','compileall','-q','app','scri
 if compile_result.returncode:sys.exit(compile_result.returncode)
 tests=subprocess.run([sys.executable,'-m','unittest','discover','-s','tests','-v'],cwd=root)
 if tests.returncode:sys.exit(tests.returncode)
+def ui_gate_preflight(root):
+ """Return actionable problems that would make the browser acceptance gate
+ fail for environment reasons rather than for a real UI regression.
+
+ The required node packages are derived from package.json so the gate can
+ never drift from the declared dependency set."""
+ problems=[]
+ if shutil.which('node') is None:
+  problems.append("node runtime not found on PATH - install the Node.js version pinned in .github/workflows/ci.yml")
+  return problems
+ manifest=root/'package.json'
+ if not manifest.exists():return problems
+ declared=sorted(json.loads(manifest.read_text()).get('dependencies',{}))
+ missing=[name for name in declared if not (root/'node_modules'/name).exists()]
+ if missing:
+  problems.append("browser acceptance dependencies missing from node_modules (%s) - run 'npm ci' in the repository root"%', '.join(missing))
+ return problems
+ui_problems=ui_gate_preflight(root)
+if ui_problems:
+ for problem in ui_problems:print('Release gate preflight failed:',problem)
+ sys.exit(2)
 ui=subprocess.run(['node','scripts/ui_acceptance.mjs'],cwd=root)
 if ui.returncode:sys.exit(ui.returncode)
 rehearsal=subprocess.run([sys.executable,'scripts/preflight_prod_env.py','--rehearsal-template','--output','artifacts/prod-rehearsal/preflight.json'],cwd=root)

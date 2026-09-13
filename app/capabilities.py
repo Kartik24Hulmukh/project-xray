@@ -113,7 +113,7 @@ def denial_reason(
     headers: Mapping[str, str],
 ) -> str | None:
     """Return an internal denial reason before any request side effect."""
-    if path in {"/health", "/ready"}:
+    if path in {"/health", "/livez", "/ready", "/readyz"}:
         return None
     if not policy.valid:
         return "invalid_configuration"

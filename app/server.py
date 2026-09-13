@@ -156,6 +156,12 @@ def uid(prefix):
     return prefix + '_' + uuid.uuid4().hex[:16]
 
 
+# Kubernetes-style probe aliases: /livez mirrors /health (process alive), /readyz mirrors /ready (DB + audit chain verified).
+LIVENESS_PATHS = frozenset({'/health', '/livez'})
+READINESS_PATHS = frozenset({'/ready', '/readyz'})
+PROBE_PATHS = LIVENESS_PATHS | READINESS_PATHS
+
+
 def connect_db(path=None):
     """Connect using the database abstraction layer."""
     return connect(path)
@@ -718,7 +724,7 @@ class H(BaseHTTPRequestHandler):
 
     def rate_bucket(self, method, path):
 
-        if path in {'/health', '/ready'} or path in {'/', '/index.html', '/app.js', '/styles.css'}:
+        if path in PROBE_PATHS or path in {'/', '/index.html', '/app.js', '/styles.css'}:
             return None
         if method == 'GET':
             if self.headers.get('Authorization'):
@@ -866,9 +872,9 @@ class H(BaseHTTPRequestHandler):
         if self.limited('GET', path):
             return self.out({'error': 'rate limit exceeded'}, 429)
 
-        if path == '/health':
+        if path in LIVENESS_PATHS:
             return self.out({'status': 'ok', 'time': now(), 'version': '0.4.6'})
-        if path == '/ready':
+        if path in READINESS_PATHS:
             if not capability_policy.valid or capability_policy.maintenance:
                 return self.out(
                     {

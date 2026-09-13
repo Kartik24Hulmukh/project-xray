@@ -2,6 +2,7 @@
 import hashlib
 import ipaddress
 import json
+import math
 import os
 import re
 import secrets
@@ -426,8 +427,15 @@ def strict_json(raw):
     def invalid_constant(value):
         raise ValueError('non-finite JSON number')
 
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError('non-finite JSON number')
+        return number
+
     try:
-        result = json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid_constant)
+        result = json.loads(raw, object_pairs_hook=pairs,
+                            parse_constant=invalid_constant, parse_float=finite_float)
     except (RecursionError, UnicodeDecodeError):
         raise ValueError('invalid JSON encoding or nesting') from None
     if not isinstance(result, dict):

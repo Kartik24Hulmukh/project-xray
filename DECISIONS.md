@@ -54,3 +54,8 @@
 - Serialize PostgreSQL transitions and global audit verification with transaction advisory lock 1481785689. Correctness before throughput; see docs/HARDENING_2026_09.md.
 - Bound HTTP handlers and PostgreSQL admission; use ingress for total deadlines and distributed abuse controls.
 - Acknowledge JSON mutations after commit, not before. Preserve existing publication and evidence gates.
+
+## September 2026 continuation — replay capacity and image security
+- Never evict unexpired authentication replay records for capacity. Reject new assertions when the bounded cache is full; reclaim all expired entries even if expiries arrive out of order. The process-local cache is still not a cross-replica guarantee.
+- Reject numeric JSON exponent overflow during parsing, including nested values.
+- Refresh inherited Alpine packages in both build stages. Keep the existing HIGH/CRITICAL scanner gate and expired-waiver policy unchanged; a successful image scan must verify the actual resulting artifact.

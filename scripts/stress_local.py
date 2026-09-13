@@ -60,7 +60,7 @@ def main():
             except Exception as error:
                 return type(error).__name__, time.perf_counter()-start, b''
         results = {'scope': 'local synthetic SQLite; rate limits raised for throughput; no external services',
-                   'worker_limit': 64, 'phases': []}
+                   'worker_limit': 64, 'exec_parallelism': os.getenv('HTTP_EXEC_PARALLELISM', 'default'), 'phases': []}
         def phase(name, clients, count, work):
             start = time.perf_counter()
             with ThreadPoolExecutor(max_workers=clients) as pool:
@@ -95,6 +95,12 @@ def main():
             successful_ids = {json.loads(raw)['id'] for code, _, raw in replays if code == 201}
             results['idempotency_unique_success_ids'] = len(successful_ids)
             results['readiness_after_load'] = request('/ready')[0]
+            try:  # peak resident memory of the server process (Linux only)
+                status = Path(f'/proc/{proc.pid}/status').read_text()
+                results['server_peak_rss_kb'] = int(next(l for l in status.splitlines() if l.startswith('VmHWM:')).split()[1])
+                results['server_threads'] = int(next(l for l in status.splitlines() if l.startswith('Threads:')).split()[1])
+            except (OSError, StopIteration):
+                results['server_peak_rss_kb'] = None
             # Direct database verification is local-only and checks every audit checkpoint.
             import sqlite3
             sys.path.insert(0, str(ROOT))

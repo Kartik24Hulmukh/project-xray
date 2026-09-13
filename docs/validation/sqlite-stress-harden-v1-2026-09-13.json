@@ -1,0 +1,70 @@
+{
+  "scope": "local synthetic SQLite; rate limits raised for throughput; no external services",
+  "worker_limit": 64,
+  "phases": [
+    {
+      "name": "baseline_reads",
+      "clients": 1,
+      "requests": 100,
+      "seconds": 0.165,
+      "requests_per_second": 606.43,
+      "p50_ms": 1.37,
+      "p95_ms": 2.6,
+      "p99_ms": 3.2,
+      "statuses": {
+        "200": 100
+      }
+    },
+    {
+      "name": "100_client_reads",
+      "clients": 100,
+      "requests": 1500,
+      "seconds": 12.534,
+      "requests_per_second": 119.68,
+      "p50_ms": 879.41,
+      "p95_ms": 1496.27,
+      "p99_ms": 1789.01,
+      "statuses": {
+        "200": 1500
+      }
+    },
+    {
+      "name": "100_client_writes",
+      "clients": 100,
+      "requests": 300,
+      "seconds": 1.354,
+      "requests_per_second": 221.6,
+      "p50_ms": 170.27,
+      "p95_ms": 1025.76,
+      "p99_ms": 1192.79,
+      "statuses": {
+        "201": 300
+      }
+    },
+    {
+      "name": "100_client_idempotency_race",
+      "clients": 100,
+      "requests": 100,
+      "seconds": 0.454,
+      "requests_per_second": 220.2,
+      "p50_ms": 96.57,
+      "p95_ms": 194.03,
+      "p99_ms": 344.01,
+      "statuses": {
+        "201": 83,
+        "409": 17
+      }
+    }
+  ],
+  "idempotency_unique_success_ids": 1,
+  "readiness_after_load": 200,
+  "integrity_check": "ok",
+  "audit": {
+    "events": 301,
+    "head": "6d2a5da2c3694f671edd5dc0a0780e88a08109ecfbe17597f005fd14d7077ff0"
+  },
+  "persisted_projects": 301,
+  "expected_projects": 301,
+  "safety_pass": true,
+  "zero_rejection_capacity_pass": false
+}

@@ -1,5 +1,5 @@
 from pathlib import Path
-import json,shutil,subprocess,sys,re
+import json,os,shutil,subprocess,sys,re
 root=Path(__file__).resolve().parents[1]
 required=['README.md','AGENTS.md','LICENSE','SECURITY.md','CONTRIBUTING.md','CODE_OF_CONDUCT.md','docs/ROADMAP_72_HOURS.md','docs/ACCEPTANCE_CRITERIA.md','docs/EVIDENCE_POLICY.md','docs/THREAT_MODEL.md','Dockerfile','docker-compose.yml','app/server.py','tests/test_api.py','db/schema.sql']
 missing=[x for x in required if not (root/x).exists()]
@@ -36,12 +36,44 @@ def ui_gate_preflight(root):
  if missing:
   problems.append("browser acceptance dependencies missing from node_modules (%s) - run 'npm ci' in the repository root"%', '.join(missing))
  return problems
+BROWSER_REMEDIATION="npx playwright install chromium"
+BROWSER_PROBE="const fs=require('fs');const p=require('playwright');const e=p.chromium.executablePath();if(!e||!fs.existsSync(e)){console.error('XRAY_BROWSER_MISSING '+e);process.exit(3);}"
+def browser_binary_preflight(root,runner=subprocess.run,which=shutil.which,env=None):
+ """Complement ui_gate_preflight: node_modules can be complete while the
+ Chromium *binary* is still unprovisioned (npm ci does not download it).
+
+ Returns actionable environment problems; empty list means go. A declared
+ but uninstalled browser is a provisioning fault (exit 2), never exit 1,
+ which stays reserved for a genuine UI regression.
+
+ CHROMIUM_PATH mirrors scripts/ui_acceptance.mjs: when set, that binary is
+ the one the gate will launch, so it - not Playwright's download cache - is
+ what must exist. Keeping both sides on one contract prevents the gate from
+ demanding a Playwright download that the acceptance run would never use."""
+ env=os.environ if env is None else env
+ if which('node') is None:
+  return ["node runtime not found on PATH - install the Node.js version pinned in .github/workflows/ci.yml"]
+ chromium_path=env.get('CHROMIUM_PATH','').strip()
+ if chromium_path:
+  if os.path.isfile(chromium_path):return []
+  return ["CHROMIUM_PATH=%s is set but no executable exists there - install a system Chromium at that path or unset it and run '%s'"%(chromium_path,BROWSER_REMEDIATION)]
+ probe=runner(['node','-e',BROWSER_PROBE],cwd=str(root),capture_output=True)
+ if probe.returncode==0:return []
+ err=probe.stderr or b''
+ if isinstance(err,bytes):err=err.decode('utf-8','replace')
+ if 'XRAY_BROWSER_MISSING' in err:
+  return ["Playwright Chromium binary is declared but not installed (%s) - run '%s'"%(err.strip().split('XRAY_BROWSER_MISSING',1)[1].strip(),BROWSER_REMEDIATION)]
+ return []
 ui_problems=ui_gate_preflight(root)
 if ui_problems:
  for problem in ui_problems:print('Release gate preflight failed:',problem)
  sys.exit(2)
+browser_problems=browser_binary_preflight(root)
+if browser_problems:
+ for problem in browser_problems:print('Release gate preflight failed:',problem)
+ sys.exit(2)
 ui=subprocess.run(['node','scripts/ui_acceptance.mjs'],cwd=root)
-if ui.returncode:sys.exit(ui.returncode)
+if ui.returncode:sys.exit(1)
 rehearsal=subprocess.run([sys.executable,'scripts/preflight_prod_env.py','--rehearsal-template','--output','artifacts/prod-rehearsal/preflight.json'],cwd=root)
 if rehearsal.returncode:sys.exit(rehearsal.returncode)
 rehearsal=subprocess.run([sys.executable,'scripts/rehearse_production.py'],cwd=root)

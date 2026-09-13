@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import hashlib
 import ipaddress
+import functools
 import json
 import math
 import os
@@ -156,8 +157,9 @@ def uid(prefix):
     return prefix + '_' + uuid.uuid4().hex[:16]
 
 
-# Kubernetes-style probe aliases: /livez mirrors /health (process alive), /readyz mirrors /ready (DB + audit chain verified).
-LIVENESS_PATHS = frozenset({'/health', '/livez'})
+# Kubernetes-style probe aliases: /healthz and /livez mirror /health (process alive), /readyz mirrors /ready (DB + audit chain verified).
+# /healthz is the canonical liveness path named in the production runbook; /health and /livez are kept as compatibility aliases.
+LIVENESS_PATHS = frozenset({'/health', '/healthz', '/livez'})
 READINESS_PATHS = frozenset({'/ready', '/readyz'})
 PROBE_PATHS = LIVENESS_PATHS | READINESS_PATHS
 
@@ -516,6 +518,9 @@ def strict_json(raw):
     return result
 
 
+TRACEPARENT_RE = re.compile(r'00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})')
+
+
 class H(BaseHTTPRequestHandler):
     server_version = 'ProjectXRay/0.4'
     sys_version = ''
@@ -528,17 +533,43 @@ class H(BaseHTTPRequestHandler):
         self.idem = None
         self._xray_headers_sent = False
         self._pending_response = None
+        self._trace = None
 
     def safe_request_id(self):
         value = self.headers.get('X-Request-ID', '')
         return value if re.fullmatch(r'[A-Za-z0-9_-]{1,64}', value) else uid('req')
 
+    def trace_context(self):
+        """Return (trace_id, span_id, traceparent) following W3C Trace Context.
+
+        An inbound ``traceparent`` is honoured only when it is syntactically
+        valid (version 00, 32-hex trace-id, 16-hex parent-id, 2-hex flags, not
+        all-zero); anything else is dropped at the boundary and a fresh trace is
+        minted. A new server span id is always generated. OpenTelemetry
+        collectors correlate the JSON log lines on ``trace_id``/``span_id``.
+        """
+        cached = getattr(self, '_trace', None)
+        if cached:
+            return cached
+        header = self.headers.get('traceparent', '') if getattr(self, 'headers', None) else ''
+        m = TRACEPARENT_RE.fullmatch(header.strip()) if header else None
+        if m and set(m.group(1)) != {'0'} and set(m.group(2)) != {'0'}:
+            trace_id, flags = m.group(1), m.group(3)
+        else:
+            trace_id, flags = secrets.token_hex(16), '01'
+        span_id = secrets.token_hex(8)
+        self._trace = (trace_id, span_id, f'00-{trace_id}-{span_id}-{flags}')
+        return self._trace
+
     def log_message(self, fmt, *args):
+        trace_id, span_id, _ = self.trace_context()
         print(
             json.dumps(
                 {
                     'time': now(),
                     'request_id': self.request_id,
+                    'trace_id': trace_id,
+                    'span_id': span_id,
                     'remote': self.client_address[0],
                     'message': fmt % args,
                 },
@@ -559,6 +590,7 @@ class H(BaseHTTPRequestHandler):
         )
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Request-ID', self.request_id)
+        self.send_header('traceparent', self.trace_context()[2])
         for name, value in (extra_headers or {}).items():
             self.send_header(name, value)
         if PUBLIC_BASE_URL.startswith('https://'):
@@ -1514,6 +1546,31 @@ class H(BaseHTTPRequestHandler):
             self.idem = None
 
 
+def _bound_execution(method):
+    """Run a ``do_*`` handler inside the server's execution gate.
+
+    The gate is taken only after the request line and headers are parsed, so
+    slow or idle clients hold a connection slot (``MAX_HTTP_WORKERS``) but never
+    an execution slot; the execution bound therefore cannot be starved by a
+    slowloris-style client.
+    """
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        gate = getattr(getattr(self, 'server', None), '_exec', None)
+        if gate is None:
+            return method(self, *args, **kwargs)
+        with gate:
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
+for _name in [n for n in vars(H) if n.startswith('do_')]:
+    setattr(H, _name, _bound_execution(getattr(H, _name)))
+
+
+DEFAULT_EXEC_PARALLELISM = 4
+
+
 class BoundedHTTPServer(ThreadingHTTPServer):
     """Bound active handlers; backpressure admission before creating threads.
 
@@ -1523,11 +1580,23 @@ class BoundedHTTPServer(ThreadingHTTPServer):
     request_queue_size = 128
     daemon_threads = True
 
-    def __init__(self, address, handler, max_workers=None):
+    def __init__(self, address, handler, max_workers=None, exec_parallelism=None):
         workers = int(os.getenv('MAX_HTTP_WORKERS', '64')) if max_workers is None else max_workers
         if workers < 1:
             raise ValueError('MAX_HTTP_WORKERS must be positive')
+        if exec_parallelism is None:
+            exec_parallelism = int(os.getenv('HTTP_EXEC_PARALLELISM', str(DEFAULT_EXEC_PARALLELISM)))
+        if exec_parallelism < 1:
+            raise ValueError('HTTP_EXEC_PARALLELISM must be positive')
+        # Two independent bounds. ``_slots`` caps *held* connections (memory /
+        # file descriptors); ``_exec`` caps how many admitted handlers are
+        # *runnable* at once. With 64 runnable CPython threads contending for
+        # the GIL on SQLite-bound handlers, throughput collapsed ~8x under 100
+        # clients (GIL convoy). Handlers wait here instead of thrashing.
+        self.max_workers = workers
+        self.exec_parallelism = min(exec_parallelism, workers)
         self._slots = threading.BoundedSemaphore(workers)
+        self._exec = threading.BoundedSemaphore(self.exec_parallelism)
         super().__init__(address, handler)
 
     def process_request(self, request, client_address):

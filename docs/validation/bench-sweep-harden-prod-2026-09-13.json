@@ -1,0 +1,113 @@
+{
+  "all_pass": true,
+  "best_read_p95": {
+    "exec_parallelism": 2,
+    "p95_ms": 178.14
+  },
+  "cpu_count": 48,
+  "results": [
+    {
+      "100_client_idempotency_race": {
+        "p50_ms": 65.12,
+        "p95_ms": 134.36,
+        "p99_ms": 141.82,
+        "rps": 554.0,
+        "statuses": {
+          "201": 99,
+          "409": 1
+        }
+      },
+      "100_client_reads": {
+        "p50_ms": 104.15,
+        "p95_ms": 178.14,
+        "p99_ms": 192.07,
+        "rps": 857.59,
+        "statuses": {
+          "200": 1000
+        }
+      },
+      "100_client_writes": {
+        "p50_ms": 347.93,
+        "p95_ms": 401.09,
+        "p99_ms": 417.94,
+        "rps": 268.17,
+        "statuses": {
+          "201": 300
+        }
+      },
+      "exec_parallelism": 2,
+      "safety_pass": true
+    },
+    {
+      "100_client_idempotency_race": {
+        "p50_ms": 66.91,
+        "p95_ms": 136.84,
+        "p99_ms": 140.33,
+        "rps": 551.93,
+        "statuses": {
+          "201": 99,
+          "409": 1
+        }
+      },
+      "100_client_reads": {
+        "p50_ms": 122.47,
+        "p95_ms": 205.66,
+        "p99_ms": 288.75,
+        "rps": 605.76,
+        "statuses": {
+          "200": 1000
+        }
+      },
+      "100_client_writes": {
+        "p50_ms": 238.89,
+        "p95_ms": 340.22,
+        "p99_ms": 431.06,
+        "rps": 353.13,
+        "statuses": {
+          "201": 300
+        }
+      },
+      "exec_parallelism": 4,
+      "safety_pass": true
+    },
+    {
+      "100_client_idempotency_race": {
+        "p50_ms": 51.39,
+        "p95_ms": 94.66,
+        "p99_ms": 1052.46,
+        "rps": 92.26,
+        "statuses": {
+          "201": 94,
+          "409": 6
+        }
+      },
+      "100_client_reads": {
+        "p50_ms": 123.95,
+        "p95_ms": 286.03,
+        "p99_ms": 486.25,
+        "rps": 313.26,
+        "statuses": {
+          "200": 1000
+        }
+      },
+      "100_client_writes": {
+        "p50_ms": 314.07,
+        "p95_ms": 572.55,
+        "p99_ms": 1070.71,
+        "rps": 68.89,
+        "statuses": {
+          "201": 300
+        }
+      },
+      "exec_parallelism": 8,
+      "safety_pass": true
+    }
+  ],
+  "scope": "local synthetic SQLite workload; comparative, not capacity",
+  "tool": "bench_sweep",
+  "values": [
+    2,
+    4,
+    8
+  ]
+}

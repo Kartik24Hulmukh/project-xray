@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Liveness/readiness probe contract: /livez and /readyz are first-class aliases of /health and /ready."""
+"""Liveness/readiness probe contract: /healthz, /livez and /readyz are first-class aliases of /health and /ready."""
 import json
 import os
 import tempfile
@@ -51,10 +51,23 @@ class TestProbeAliases(unittest.TestCase):
 
     def test_probe_path_sets_are_disjoint_and_complete(self):
         s = self.server
-        self.assertEqual(s.LIVENESS_PATHS, frozenset({'/health', '/livez'}))
+        self.assertEqual(s.LIVENESS_PATHS, frozenset({'/health', '/healthz', '/livez'}))
         self.assertEqual(s.READINESS_PATHS, frozenset({'/ready', '/readyz'}))
         self.assertFalse(s.LIVENESS_PATHS & s.READINESS_PATHS)
         self.assertEqual(s.PROBE_PATHS, s.LIVENESS_PATHS | s.READINESS_PATHS)
+
+    def test_healthz_mirrors_health(self):
+        a, ba = self._get('/health')
+        b, bb = self._get('/healthz')
+        self.assertEqual((a, b), (200, 200))
+        self.assertEqual(ba['status'], bb['status'])
+        self.assertEqual(ba['version'], bb['version'])
+
+    def test_canonical_runbook_probe_pair_is_served(self):
+        # The release runbook and orchestrator manifests poll exactly these two paths.
+        self.assertEqual({self._get('/healthz')[0], self._get('/readyz')[0]}, {200})
+        self.assertIn('/healthz', self.server.LIVENESS_PATHS)
+        self.assertIn('/readyz', self.server.READINESS_PATHS)
 
     def test_livez_mirrors_health(self):
         a, ba = self._get('/health')
@@ -72,7 +85,7 @@ class TestProbeAliases(unittest.TestCase):
 
     def test_probes_are_unauthenticated_and_not_rate_limited(self):
         # 50 rapid unauthenticated probe hits must never trip the limiter (orchestrators poll aggressively).
-        codes = {self._get(p)[0] for p in ('/livez', '/readyz') for _ in range(25)}
+        codes = {self._get(p)[0] for p in ('/healthz', '/livez', '/readyz') for _ in range(25)}
         self.assertEqual(codes, {200})
 
 

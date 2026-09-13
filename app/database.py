@@ -284,11 +284,22 @@ class CursorAdapter:
                 raise IntegrityError(str(e))
             if HAS_PSYCOPG2 and isinstance(e, psycopg2.IntegrityError):
                 raise IntegrityError(str(e))
+            if isinstance(e, sqlite3.OperationalError) and ('locked' in str(e).lower() or 'busy' in str(e).lower()):
+                raise DatabaseBusy('database is busy, retry') from e
             raise
         return self
 
     def executemany(self, query, params_seq):
-        self._cursor.executemany(_convert_sql(query), params_seq)
+        try:
+            self._cursor.executemany(_convert_sql(query), params_seq)
+        except Exception as e:
+            if isinstance(e, sqlite3.IntegrityError):
+                raise IntegrityError(str(e))
+            if HAS_PSYCOPG2 and isinstance(e, psycopg2.IntegrityError):
+                raise IntegrityError(str(e))
+            if isinstance(e, sqlite3.OperationalError) and ('locked' in str(e).lower() or 'busy' in str(e).lower()):
+                raise DatabaseBusy('database is busy, retry') from e
+            raise
 
     def executescript(self, script):
         if IS_POSTGRES:
@@ -338,7 +349,12 @@ class ConnectionAdapter:
         return CursorAdapter(cur)
 
     def commit(self):
-        self._conn.commit()
+        try:
+            self._conn.commit()
+        except Exception as e:
+            if isinstance(e, sqlite3.OperationalError) and ('locked' in str(e).lower() or 'busy' in str(e).lower()):
+                raise DatabaseBusy('database is busy, retry') from e
+            raise
 
     def rollback(self):
         self._conn.rollback()
@@ -390,6 +406,44 @@ class ConnectionAdapter:
         self.close()
 
 
+_WAL_LOCK = __import__('threading').Lock()
+_WAL_READY = set()
+
+
+def _wal_identity(path):
+    try:
+        st = path.stat()
+        return (str(path), st.st_dev, st.st_ino)
+    except OSError:
+        return (str(path), None, None)
+
+
+def _ensure_wal(conn, path):
+    """Switch the database file to WAL exactly once per process.
+
+    ``PRAGMA journal_mode=WAL`` takes an exclusive lock on the file even when
+    the mode is already WAL, so issuing it on every ``connect()`` serialises
+    every reader behind every other connection under load. Journal mode is a
+    persistent property of the file, so one successful switch is sufficient;
+    the (path, device, inode) key re-arms the switch if the file is recreated.
+    """
+    key = _wal_identity(path)
+    if key in _WAL_READY:
+        return
+    with _WAL_LOCK:
+        if key in _WAL_READY:
+            return
+        mode = conn.execute('PRAGMA journal_mode=WAL').fetchone()[0]
+        if str(mode).lower() == 'wal':
+            _WAL_READY.add(key)
+
+
+def reset_wal_cache():
+    """Forget WAL bookkeeping (tests / after deleting database files)."""
+    with _WAL_LOCK:
+        _WAL_READY.clear()
+
+
 def connect(path=None):
     """Return a ConnectionAdapter for the configured database."""
     if IS_POSTGRES:
@@ -416,7 +470,9 @@ def connect(path=None):
         conn = sqlite3.connect(str(p), timeout=10, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
-        conn.execute('PRAGMA busy_timeout=5000')
+        conn.execute('PRAGMA busy_timeout=10000')
+        _ensure_wal(conn, p)
+        conn.execute('PRAGMA synchronous=NORMAL')
         return ConnectionAdapter(conn)
 
 

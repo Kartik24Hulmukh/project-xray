@@ -22,6 +22,8 @@ jobs:
           node-version: '20'
       - name: Install Node dependencies
         run: npm ci
+      - name: Provision Playwright Chromium (release gate exit 2 otherwise)
+        run: npx playwright install --with-deps chromium
       - name: Unit and integration tests
         run: python3 -m unittest discover -s tests -v
       - name: Repository security contracts
@@ -36,8 +38,6 @@ jobs:
       - name: Synthetic smoke
         run: python3 scripts/smoke_e2e.py
       - name: Release checks
-        env:
-          CHROMIUM_PATH: /usr/bin/chromium
         run: python3 scripts/check_release.py
 
   postgres:

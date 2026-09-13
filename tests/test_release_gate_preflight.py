@@ -86,7 +86,7 @@ class BrowserBinaryPreflightContract(unittest.TestCase):
 
     def test_missing_binary_is_actionable_and_names_the_install_command(self):
         preflight=_load_browser_preflight()
-        problems=preflight(ROOT,runner=lambda *a,**k:_Completed(3,b'XRAY_BROWSER_MISSING /home/u/.cache/ms-playwright/chromium-1140/chrome\n'))
+        problems=preflight(ROOT,runner=lambda *a,**k:_Completed(3,b'XRAY_BROWSER_MISSING /home/u/.cache/ms-playwright/chromium-1140/chrome\n'),env={})
         self.assertEqual(len(problems),1)
         self.assertIn('ms-playwright',problems[0])
         self.assertIn('playwright install chromium',problems[0])

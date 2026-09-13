@@ -65,9 +65,10 @@ are shuffled; mixed-body conflicts are covered by separate idempotency tests.
 
 ## Validation and convergence
 
-After change: **291 tests run, 283 passed, 8 PostgreSQL skips, 0 failures** locally.
-One fix cycle: probe test compared dynamic timestamps; corrected comparison to stable
-status/version fields. No failing production subsystem required repeated fix cycles.
+After rebase over concurrent `fb1df06`: **293 tests run, 285 passed, 8 PostgreSQL skips, 0 failures** locally.
+One probe-test fix cycle: dynamic timestamps compared; corrected to stable status/version fields.
+One release-test fix cycle: missing-browser mock inherited CHROMIUM_PATH; now uses an explicit empty environment.
+Release checker including browser acceptance and synthetic rehearsal passed with the provisioned Playwright binary. No failing production subsystem required repeated fix cycles.
 Synthetic smoke: create-to-report/RTI/capsule/audit, static assets, restart and restore passed.
 Production rehearsal (synthetic managed adapters): passed, backup and restored SHA match.
 Full PostgreSQL, container and blocking-security evidence must be verified on this exact
@@ -88,3 +89,10 @@ new head in CI before merging. No bypass of review or branch protection is reque
 
 This is mergeable engineering work pending review/CI, **not production certification**.
 High traction or a 100x product-value guarantee cannot be established by synthetic tests.
+
+## Concurrent branch integration
+
+A concurrent actor pushed `fb1df06` during this run. Initial push was safely rejected;
+rebased and preserved that change without force. PR #39 was then merged externally
+at `fb1df06` while our `c3c4f62` remained on the branch. Our SDK work therefore needs
+a **new follow-up PR**, not a claim that it was included in #39.

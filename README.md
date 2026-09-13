@@ -139,3 +139,14 @@ small: `2` on CPU-only SQLite nodes, `4` (default) when handlers do network I/O
 503. Global audit-chain writes are serialized for correctness, not advertised
 as unlimited write throughput. Ingress must enforce total request deadlines,
 body limits, rate limits and trusted forwarding headers.
+
+## Health probes
+
+| Path | Kind | Checks | Auth | Rate limited |
+|---|---|---|---|---|
+| `/healthz` | liveness (canonical) | process alive, version reported | none | no |
+| `/health`, `/livez` | liveness (compatibility aliases) | identical body to `/healthz` | none | no |
+| `/readyz` | readiness (canonical) | database reachable + audit chain verified | none | no |
+| `/ready` | readiness (compatibility alias) | identical body to `/readyz` | none | no |
+
+Orchestrators should poll `/healthz` (liveness) and `/readyz` (readiness); the other paths exist only so already-deployed manifests keep working. Probe paths are exempt from the rate limiter so aggressive kubelet polling can never mark a healthy pod unready. Contract is pinned by `tests/test_probes.py`.

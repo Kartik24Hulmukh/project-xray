@@ -157,8 +157,9 @@ def uid(prefix):
     return prefix + '_' + uuid.uuid4().hex[:16]
 
 
-# Kubernetes-style probe aliases: /livez mirrors /health (process alive), /readyz mirrors /ready (DB + audit chain verified).
-LIVENESS_PATHS = frozenset({'/health', '/livez'})
+# Kubernetes-style probe aliases: /healthz and /livez mirror /health (process alive), /readyz mirrors /ready (DB + audit chain verified).
+# /healthz is the canonical liveness path named in the production runbook; /health and /livez are kept as compatibility aliases.
+LIVENESS_PATHS = frozenset({'/health', '/healthz', '/livez'})
 READINESS_PATHS = frozenset({'/ready', '/readyz'})
 PROBE_PATHS = LIVENESS_PATHS | READINESS_PATHS
 

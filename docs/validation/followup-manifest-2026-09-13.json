@@ -20,6 +20,7 @@
     "followup-after-2026-09-13.json": "e72145fcec10a06ca10d7b98693ed571c8171e05e00798641dce3b31d56ff05f",
     "followup-baseline-2026-09-13.json": "26b230fed2f52083c91f4c4701b4dfb5b1b8126fcef2974bdea41879a3091a8e",
     "followup-faults-2026-09-13.json": "1d5298346377a503d84221a216edaab82f62c19f1110a2e90ddecfafbeebd96c",
-    "followup-hardening-2026-09-13.md": "1498467250e1f2c46a33fc4ad95b10a4c99a949f29b0fdc1893eec9191389751"
+    "followup-hardening-2026-09-13.md": "775b35f07d6898439280bb3959f0e2418a7295f643516ed87b330f477f87dec0",
+    "followup-otel-stress-2026-09-13.json": "c2d97f22676415451d1a12475348573adbe5dcea36b314251d62e571b6fc72a6"
   }
 }

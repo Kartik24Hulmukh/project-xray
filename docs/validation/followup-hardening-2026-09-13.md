@@ -96,3 +96,10 @@ A concurrent actor pushed `fb1df06` during this run. Initial push was safely rej
 rebased and preserved that change without force. PR #39 was then merged externally
 at `fb1df06` while our `c3c4f62` remained on the branch. Our SDK work therefore needs
 a **new follow-up PR**, not a claim that it was included in #39.
+
+Follow-up PR: https://github.com/Kartik24Hulmukh/project-xray/pull/40 .
+Integrated squash-merged `main` (`3157e29`) without force so #40 has only the new diff.
+An additional 100-client run with SDK enabled and 100% root sampling sent **2304 spans
+in 9 protobuf batches** to a real loopback collector. Safety passed; read P95 204.86ms,
+write P95 243.32ms, RSS 65980 KiB. This later sample is not an overhead A/B comparison.
+The abrupt harness termination does not flush remaining buffered spans.

@@ -1,0 +1,83 @@
+{
+  "scope": "local synthetic SQLite; rate limits raised for throughput; no external services",
+  "worker_limit": 64,
+  "exec_parallelism": "default",
+  "phases": [
+    {
+      "name": "baseline_reads",
+      "clients": 1,
+      "requests": 100,
+      "seconds": 0.164,
+      "requests_per_second": 608.89,
+      "p50_ms": 1.41,
+      "p95_ms": 2.54,
+      "p99_ms": 2.71,
+      "statuses": {
+        "200": 100
+      }
+    },
+    {
+      "name": "100_client_reads",
+      "clients": 100,
+      "requests": 2000,
+      "seconds": 2.637,
+      "requests_per_second": 758.47,
+      "p50_ms": 120.43,
+      "p95_ms": 204.86,
+      "p99_ms": 280.4,
+      "statuses": {
+        "200": 2000
+      }
+    },
+    {
+      "name": "100_client_writes",
+      "clients": 100,
+      "requests": 300,
+      "seconds": 0.705,
+      "requests_per_second": 425.51,
+      "p50_ms": 221.15,
+      "p95_ms": 243.32,
+      "p99_ms": 323.11,
+      "statuses": {
+        "201": 300
+      }
+    },
+    {
+      "name": "100_client_idempotency_race",
+      "clients": 100,
+      "requests": 100,
+      "seconds": 0.154,
+      "requests_per_second": 649.35,
+      "p50_ms": 63.6,
+      "p95_ms": 111.41,
+      "p99_ms": 114.72,
+      "statuses": {
+        "409": 2,
+        "201": 98
+      }
+    }
+  ],
+  "idempotency_unique_success_ids": 1,
+  "readiness_after_load": 200,
+  "server_peak_rss_kb": 65980,
+  "server_threads": 2,
+  "integrity_check": "ok",
+  "audit": {
+    "events": 301,
+    "head": "0b1b1e31902c3152046ce090e087caf437bc638f6c9bfa699f539c76d3b3cb7f"
+  },
+  "persisted_projects": 301,
+  "expected_projects": 301,
+  "safety_pass": true,
+  "zero_rejection_capacity_pass": false,
+  "otel": {
+    "enabled": true,
+    "root_sample_ratio": 1,
+    "sink": "loopback OTLP/HTTP protobuf",
+    "received": {
+      "batches": 9,
+      "spans": 2304
+    },
+    "note": "Harness terminates server abruptly; buffered final spans may be lost. Not production collector validation."
+  }
+}

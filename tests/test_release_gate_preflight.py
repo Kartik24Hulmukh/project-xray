@@ -1,79 +1,118 @@
-"""Contract tests for the release-gate browser provisioning preflight.
-
-Regression guard for the exit-code misclassification: a missing Chromium
-binary is an ENVIRONMENT fault (exit 2), never a UI regression (exit 1).
-The gate module executes work at import time, so these tests load only the
-preflight function out of the source via ast instead of importing it.
-"""
-import ast
-import subprocess
-import types
-import unittest
+import ast,json,shutil,tempfile,unittest
 from pathlib import Path
 
-GATE = Path(__file__).resolve().parents[1] / "scripts" / "check_release.py"
-SOURCE = GATE.read_text(encoding="utf-8")
+ROOT=Path(__file__).resolve().parents[1]
+SCRIPT=ROOT/'scripts'/'check_release.py'
+SOURCE=SCRIPT.read_text()
+TREE=ast.parse(SOURCE)
 
 
-def load_preflight():
-    tree = ast.parse(SOURCE)
-    ns = {"subprocess": subprocess, "shutil": types.SimpleNamespace(which=lambda n: n)}
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "").startswith("BROWSER_"):
-            exec(compile(ast.Module([node], []), str(GATE), "exec"), ns)
-        if isinstance(node, ast.FunctionDef) and node.name == "browser_acceptance_preflight":
-            exec(compile(ast.Module([node], []), str(GATE), "exec"), ns)
-    return ns
-
-
-class Completed:
-    def __init__(self, returncode, stderr=b""):
-        self.returncode = returncode
-        self.stderr = stderr
-        self.stdout = b""
+def _load_preflight():
+    for node in TREE.body:
+        if isinstance(node,ast.FunctionDef) and node.name=='ui_gate_preflight':
+            namespace={'shutil':shutil,'Path':Path,'json':json}
+            exec(compile(ast.Module(body=[node],type_ignores=[]),str(SCRIPT),'exec'),namespace)
+            return namespace['ui_gate_preflight']
+    raise AssertionError('ui_gate_preflight is missing from scripts/check_release.py')
 
 
 class ReleaseGatePreflightContract(unittest.TestCase):
-    def setUp(self):
-        self.ns = load_preflight()
-        self.preflight = self.ns["browser_acceptance_preflight"]
+    def test_preflight_runs_before_browser_acceptance(self):
+        preflight_line=None
+        ui_line=None
+        for node in ast.walk(TREE):
+            if isinstance(node,ast.Call) and getattr(node.func,'id','')=='ui_gate_preflight':
+                preflight_line=node.lineno
+            if isinstance(node,ast.Constant) and node.value=='scripts/ui_acceptance.mjs':
+                ui_line=node.lineno
+        self.assertIsNotNone(preflight_line,'release gate never calls ui_gate_preflight')
+        self.assertIsNotNone(ui_line,'release gate no longer runs the browser acceptance suite')
+        self.assertLess(preflight_line,ui_line,'dependency preflight must run before spawning node')
+
+    def test_missing_browser_dependencies_are_reported_actionably(self):
+        preflight=_load_preflight()
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp)/'package.json').write_text(json.dumps({'dependencies':{'playwright':'^1.40.0'}}))
+            problems=preflight(Path(tmp))
+            self.assertTrue(problems,'a clone without node_modules must fail preflight, not crash inside node')
+            self.assertTrue(any('npm ci' in p or 'node runtime' in p for p in problems),problems)
+
+    def test_installed_dependencies_pass_preflight(self):
+        if shutil.which('node') is None:
+            self.skipTest('node runtime not available in this environment')
+        preflight=_load_preflight()
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp)/'package.json').write_text(json.dumps({'dependencies':{'playwright':'^1.40.0'}}))
+            (Path(tmp)/'node_modules'/'playwright').mkdir(parents=True)
+            self.assertEqual(preflight(Path(tmp)),[])
+
+    def test_required_packages_track_the_real_manifest(self):
+        if shutil.which('node') is None:
+            self.skipTest('node runtime not available in this environment')
+        declared=sorted(json.loads((ROOT/'package.json').read_text()).get('dependencies',{}))
+        self.assertTrue(declared,'package.json must declare the browser acceptance dependencies')
+        preflight=_load_preflight()
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp)/'package.json').write_text((ROOT/'package.json').read_text())
+            for name in declared:
+                (Path(tmp)/'node_modules'/name).mkdir(parents=True)
+            self.assertEqual(preflight(Path(tmp)),[])
+
+
+def _load_browser_preflight():
+    import subprocess as _sp
+    for node in TREE.body:
+        if isinstance(node,ast.FunctionDef) and node.name=='browser_binary_preflight':
+            ns={'shutil':shutil,'Path':Path,'json':json,'subprocess':_sp,'BROWSER_REMEDIATION':'npx playwright install chromium','BROWSER_PROBE':''}
+            exec(compile(ast.Module(body=[node],type_ignores=[]),str(SCRIPT),'exec'),ns)
+            return ns['browser_binary_preflight']
+    raise AssertionError('browser_binary_preflight is missing from scripts/check_release.py')
+
+
+class _Completed:
+    def __init__(self,returncode,stderr=b''):
+        self.returncode=returncode
+        self.stderr=stderr
+        self.stdout=b''
+
+
+class BrowserBinaryPreflightContract(unittest.TestCase):
+    """npm ci can succeed while the Chromium binary is still missing; that is an
+    environment fault (exit 2), not a UI regression (exit 1)."""
 
     def test_provisioned_browser_is_go(self):
-        self.assertEqual(self.preflight(".", runner=lambda *a, **k: Completed(0)), [])
+        preflight=_load_browser_preflight()
+        self.assertEqual(preflight(ROOT,runner=lambda *a,**k:_Completed(0)),[])
 
-    def test_missing_chromium_binary_is_actionable_environment_fault(self):
-        problems = self.preflight(
-            ".",
-            runner=lambda *a, **k: Completed(3, b"XRAY_BROWSER_MISSING /root/.cache/ms-playwright/chromium-1140/chrome\n"),
-        )
-        self.assertEqual(len(problems), 1)
-        self.assertIn("ms-playwright", problems[0])
+    def test_missing_binary_is_actionable_and_names_the_install_command(self):
+        preflight=_load_browser_preflight()
+        problems=preflight(ROOT,runner=lambda *a,**k:_Completed(3,b'XRAY_BROWSER_MISSING /home/u/.cache/ms-playwright/chromium-1140/chrome\n'))
+        self.assertEqual(len(problems),1)
+        self.assertIn('ms-playwright',problems[0])
+        self.assertIn('playwright install chromium',problems[0])
 
     def test_playwright_undeclared_is_not_an_environment_fault(self):
-        problems = self.preflight(
-            ".",
-            runner=lambda *a, **k: Completed(1, b"Error: Cannot find module 'playwright'"),
-        )
-        self.assertEqual(problems, [])
+        preflight=_load_browser_preflight()
+        self.assertEqual(preflight(ROOT,runner=lambda *a,**k:_Completed(1,b"Error: Cannot find module 'playwright'")),[])
 
-    def test_missing_node_is_reported_without_running_probe(self):
-        def explode(*a, **k):
-            raise AssertionError("probe must not run when node is absent")
+    def test_missing_node_short_circuits_before_the_probe(self):
+        preflight=_load_browser_preflight()
+        def explode(*a,**k):
+            raise AssertionError('probe must not spawn when node is absent')
+        problems=preflight(ROOT,runner=explode,which=lambda n:None)
+        self.assertEqual(len(problems),1)
+        self.assertIn('node runtime',problems[0])
 
-        problems = self.preflight(".", runner=explode, which=lambda n: None)
-        self.assertEqual(len(problems), 1)
-        self.assertIn("node", problems[0])
-
-    def test_preflight_runs_before_ui_acceptance_and_exits_two(self):
-        call = SOURCE.index("provisioning=browser_acceptance_preflight(root)")
-        ui = SOURCE.index("scripts/ui_acceptance.mjs", call)
-        self.assertLess(call, ui, "preflight must be evaluated before the UI acceptance run")
-        self.assertIn("sys.exit(2)", SOURCE[call:ui])
+    def test_binary_preflight_runs_before_browser_acceptance(self):
+        call=SOURCE.index('browser_problems=browser_binary_preflight(root)')
+        ui=SOURCE.index('scripts/ui_acceptance.mjs',call)
+        self.assertLess(call,ui)
+        self.assertIn('sys.exit(2)',SOURCE[call:ui])
 
     def test_real_ui_failure_still_exits_one(self):
-        idx = SOURCE.index("ui=subprocess.run")
-        self.assertIn("if ui.returncode:sys.exit(1)", SOURCE[idx:idx + 200])
+        idx=SOURCE.index('ui=subprocess.run')
+        self.assertIn('if ui.returncode:sys.exit(1)',SOURCE[idx:idx+200])
 
 
-if __name__ == "__main__":
+if __name__=='__main__':
     unittest.main()

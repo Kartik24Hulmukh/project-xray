@@ -23,3 +23,27 @@ def verify(c,key):
   previous=expected
  if len(checkpoints)!=count:raise RuntimeError('orphan audit checkpoint detected')
  return {'events':count,'head':previous}
+
+
+def verify_head(c,key):
+ """O(1) audit head check: validates the newest event's checkpoint HMAC.
+
+ Confirms the head event has a checkpoint whose event_count matches the
+ table cardinality and whose signature binds (event_id,count,head_hash)
+ under `key`. It does NOT walk the chain; callers that need full-prefix
+ integrity must use verify(). Raises RuntimeError on any inconsistency.
+ """
+ if getattr(c, '_is_pg', False):c.execute('SELECT pg_advisory_xact_lock(1481785689)')
+ row=c.execute('SELECT * FROM audit_events ORDER BY id DESC LIMIT 1').fetchone()
+ if not row:
+  n=c.execute('SELECT COUNT(*) n FROM audit_checkpoints').fetchone()['n']
+  if n:raise RuntimeError('orphan audit checkpoint detected')
+  return {'events':0,'head':''}
+ expected=event_hash(row['previous_hash'],row['event_id'],row['actor'],row['action'],row['object_type'],row['object_id'],row['detail'],row['created_at'])
+ if row['event_hash']!=expected:raise RuntimeError('audit head event hash mismatch')
+ n=c.execute('SELECT COUNT(*) n FROM audit_events').fetchone()['n']
+ cp=c.execute('SELECT * FROM audit_checkpoints WHERE event_id=?',(row['event_id'],)).fetchone()
+ if not cp or cp['event_count']!=n or cp['head_hash']!=row['event_hash']:raise RuntimeError('audit head checkpoint missing or inconsistent')
+ signature=checkpoint_signature(row['event_id'],n,row['event_hash'],key)
+ if not hmac.compare_digest(cp['signature'],signature):raise RuntimeError('audit head checkpoint signature invalid')
+ return {'events':n,'head':row['event_hash']}

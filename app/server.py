@@ -16,14 +16,14 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 try:
-    from app.audit import append as append_audit, verify as verify_audit
+    from app.audit import append as append_audit, verify as verify_audit, verify_head as verify_audit_head
     from app.capabilities import CapabilityPolicy, denial_reason
     from app.database import connect, db, IS_POSTGRES, IntegrityError, DatabaseBusy, get_schema_version, set_schema_version, table_exists, integrity_check
     from app.operations import send_alert
     from app.security import token_hash, verify_gateway_assertion, verify_proxy
     from app.storage import settings_from_env, verify_managed_object
 except ModuleNotFoundError:
-    from audit import append as append_audit, verify as verify_audit
+    from audit import append as append_audit, verify as verify_audit, verify_head as verify_audit_head
     from capabilities import CapabilityPolicy, denial_reason
     from database import connect, db, IS_POSTGRES, IntegrityError, DatabaseBusy, get_schema_version, set_schema_version, table_exists, integrity_check
     from operations import send_alert
@@ -245,6 +245,34 @@ def init():
         for principal, secret in SCANNER_TOKENS.items():
             bootstrap(c, principal, 'scanner', secret, ttl)
         verify_audit(c, AUDIT_KEY)
+
+
+# /readyz previously re-verified the whole audit chain on every probe: O(n) CPU
+# per probe turned readiness checks into a self-inflicted DoS as the chain grew.
+# Steady state now costs O(1): every probe validates the signed head checkpoint
+# (HMAC over event_id|count|head_hash), and the full-chain walk re-runs only when
+# the head moved past the last fully-verified state or the periodic re-verify
+# window (READYZ_FULL_VERIFY_INTERVAL_SECONDS, default 300, 0 = every probe) lapses.
+READYZ_FULL_VERIFY_INTERVAL = float(os.getenv('READYZ_FULL_VERIFY_INTERVAL_SECONDS', '300'))
+_AUDIT_PROBE_LOCK = threading.Lock()
+_AUDIT_PROBE_CACHE = {'head': None, 'events': -1, 'verified_at': 0.0}
+
+
+def readiness_verify_audit(c):
+    head_state = verify_audit_head(c, AUDIT_KEY)
+    now_mono = time.monotonic()
+    with _AUDIT_PROBE_LOCK:
+        fresh = (
+            _AUDIT_PROBE_CACHE['head'] == head_state['head']
+            and _AUDIT_PROBE_CACHE['events'] == head_state['events']
+            and (now_mono - _AUDIT_PROBE_CACHE['verified_at']) < READYZ_FULL_VERIFY_INTERVAL
+        )
+    if fresh:
+        return head_state
+    full = verify_audit(c, AUDIT_KEY)
+    with _AUDIT_PROBE_LOCK:
+        _AUDIT_PROBE_CACHE.update(head=full['head'], events=full['events'], verified_at=now_mono)
+    return full
 
 
 def audit(c, actor, action, typ, oid, detail=''):
@@ -887,7 +915,7 @@ class H(BaseHTTPRequestHandler):
             try:
                 with db() as c:
                     c.execute('SELECT 1')
-                    verify_audit(c, AUDIT_KEY)
+                    readiness_verify_audit(c)
                 return self.out(
                     {
                         'status': 'degraded' if capability_policy.degraded else 'ready',

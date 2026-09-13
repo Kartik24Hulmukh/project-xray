@@ -66,19 +66,24 @@ DB_PATH = Path(os.getenv('DB_PATH', str(ROOT / 'data/project_xray.db')))
 IS_POSTGRES = bool(DATABASE_URL)
 
 _pool = None
+_pool_slots = None
 _pool_lock = __import__('threading').Lock()
 
 
 def _get_pool():
     """Thread-safe lazy initialization of the PostgreSQL connection pool."""
-    global _pool
+    global _pool, _pool_slots
     if _pool is not None:
         return _pool
     with _pool_lock:
         if _pool is None and HAS_PSYCOPG2 and DATABASE_URL:
+            capacity = int(os.getenv('DB_POOL_MAX', '10'))
+            if capacity < 1:
+                raise ValueError('DB_POOL_MAX must be positive')
+            _pool_slots = __import__('threading').BoundedSemaphore(capacity)
             _pool = pg_pool.ThreadedConnectionPool(
-                minconn=2,
-                maxconn=int(os.getenv('DB_POOL_MAX', '10')),
+                minconn=min(2, capacity),
+                maxconn=capacity,
                 dsn=DATABASE_URL,
                 cursor_factory=RealDictCursor,
             )
@@ -340,7 +345,12 @@ class ConnectionAdapter:
 
     def close(self):
         if self._is_pg:
-            _get_pool().putconn(self._conn)
+            try:
+                _get_pool().putconn(self._conn)
+            finally:
+                if getattr(self, '_pool_slot', False):
+                    self._pool_slot = False
+                    _pool_slots.release()
         else:
             self._conn.close()
 
@@ -349,7 +359,7 @@ class ConnectionAdapter:
         if self._is_pg:
             raise RuntimeError('Use pg_dump for PostgreSQL backup')
         if hasattr(dst_conn, '_conn'):
-            dst_conn._conn.backup(self._conn)
+            self._conn.backup(dst_conn._conn)
         else:
             self._conn.backup(dst_conn)
 
@@ -386,11 +396,20 @@ def connect(path=None):
         if not HAS_PSYCOPG2:
             raise RuntimeError('DATABASE_URL is set but psycopg2 is not installed')
         p = _get_pool()
-        conn = p.getconn()
-        adapter = ConnectionAdapter(conn)
-        # Set connection-level options
-        adapter.execute('SET statement_timeout = %s', (int(os.getenv('DB_STATEMENT_TIMEOUT_MS', '30000')),))
-        return adapter
+        if not _pool_slots.acquire(timeout=5):
+            raise DatabaseBusy('database capacity temporarily unavailable')
+        conn = None
+        try:
+            conn = p.getconn()
+            adapter = ConnectionAdapter(conn)
+            adapter._pool_slot = True
+            adapter.execute('SET statement_timeout = %s', (int(os.getenv('DB_STATEMENT_TIMEOUT_MS', '30000')),))
+            return adapter
+        except Exception:
+            if conn is not None:
+                p.putconn(conn, close=True)
+            _pool_slots.release()
+            raise
     else:
         p = Path(path or DB_PATH)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -409,8 +428,8 @@ def db(write=False):
         if write and not IS_POSTGRES:
             c.execute('BEGIN IMMEDIATE')
         elif write and IS_POSTGRES:
-            # PostgreSQL auto-begins on first statement; explicit for clarity
-            pass
+            # Serialize state transitions and the single global audit chain.
+            c.execute('SELECT pg_advisory_xact_lock(1481785689)')
         yield c
         if write:
             c.commit()
@@ -485,6 +504,10 @@ def integrity_check(c):
         return 'ok'
     else:
         return c.execute('PRAGMA integrity_check').fetchone()[0]
+
+
+class DatabaseBusy(Exception):
+    """Admission timed out; clients can retry with the same idempotency key."""
 
 
 class IntegrityError(Exception):

@@ -27,6 +27,17 @@ def main():
    call(port,f'/api/projects/{pid}/claims/{cid}/reviews','POST',{'decision':'approve'},RA);call(port,f'/api/projects/{pid}/claims/{cid}/reviews','POST',{'decision':'approve'},RB);call(port,f'/api/projects/{pid}/claims/{cid}/publish','POST',{},ADMIN)
    call(port,f'/api/projects/{pid}/gaps','POST',{'document_name':'Synthetic record','search_scope':'Synthetic fixture'},ADMIN);call(port,f'/api/projects/{pid}/responses','POST',{'responder':'Synthetic Authority','text':'Synthetic response','source_id':sid},ADMIN);call(port,f'/api/projects/{pid}/publish','POST',{},ADMIN)
    assert call(port,f'/api/projects/{pid}')[1]['claims'][0]['text']=='Synthetic smoke claim'
+   report=call(port,f'/api/projects/{pid}/report')[1]
+   assert 'https://example.invalid/smoke' in report and 'c'*64 in report
+   rti=call(port,f'/api/projects/{pid}/rti')[1]
+   assert 'Synthetic record' in rti and 'Draft RTI' in rti
+   capsule=call(port,f'/api/projects/{pid}/capsule')[1]
+   capsule_path=Path(d)/'capsule.json';capsule_path.write_text(json.dumps(capsule))
+   subprocess.run([sys.executable,'scripts/verify_capsule.py',str(capsule_path)],cwd=ROOT,check=True,stdout=subprocess.DEVNULL)
+   audit=call(port,f'/api/projects/{pid}/audit',token=ADMIN)[1]
+   assert audit['verification']['events']>0
+   for asset in ['/', '/app.js', '/styles.css']:
+    assert len(call(port,asset)[1])>100
   finally:stop(p)
   p=start(db,port)
   try:assert call(port,f'/api/projects/{pid}')[0]==200
@@ -35,5 +46,5 @@ def main():
   p=start(restored,port)
   try:assert call(port,f'/api/projects/{pid}')[0]==200
   finally:stop(p)
-  print(json.dumps({'status':'ok','project_id':pid,'restart':'passed','restore':'passed'}));return 0
+  print(json.dumps({'status':'ok','project_id':pid,'restart':'passed','restore':'passed','report':'passed','rti':'passed','capsule':'passed','audit':'passed','static_assets':'passed'}));return 0
 if __name__=='__main__':sys.exit(main())

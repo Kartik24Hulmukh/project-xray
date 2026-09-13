@@ -63,7 +63,9 @@ Read:
 ```bash
 cp .env.example .env
 # Optional PostgreSQL: set DATABASE_URL=postgresql://...
-# and apply db/schema_postgresqls.sql before first start.
+# and apply db/schema_postgres.sql before first start.
+# The server does not load .env automatically. Export its values first:
+set -a; . ./.env; set +a
 python3 app/server.py
 # open http://localhost:8080
 ```
@@ -110,3 +112,24 @@ Do not label a deployment production-ready merely because it boots. Target gates
 4. `docs/EVIDENCE_POLICY.md`
 5. `docs/metrics/TRACTION_DEFINITIONS.md`
 6. `docs/roadmap/MONDAY_TO_90_DAY_ROADMAP.md`
+
+## Verified runtime hardening (September 2026)
+
+See `docs/HARDENING_2026_09.md` for measured results, remaining blockers,
+and why passing synthetic tests is **not production certification**.
+Local CLI startup binds to `127.0.0.1` by default; the container explicitly
+sets `BIND_HOST=0.0.0.0`. Keep its port private behind an authenticated TLS ingress.
+
+```bash
+npm ci
+# If using a system Chromium:
+CHROMIUM_PATH=/usr/bin/chromium python3 scripts/check_release.py
+python3 scripts/smoke_e2e.py
+python3 scripts/stress_local.py  # disposable local synthetic database only
+```
+
+`MAX_HTTP_WORKERS` defaults to 64. PostgreSQL connections are bounded by
+`DB_POOL_MAX` (default 10); admission waits up to 5 seconds before a retryable
+503. Global audit-chain writes are serialized for correctness, not advertised
+as unlimited write throughput. Ingress must enforce total request deadlines,
+body limits, rate limits and trusted forwarding headers.

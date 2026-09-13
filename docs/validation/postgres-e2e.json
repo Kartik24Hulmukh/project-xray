@@ -1,0 +1,10 @@
+{
+  "scope": "local disposable PostgreSQL 16.4",
+  "project_id": "prj_6511ee4c57734138",
+  "create_source_claim_two_reviews_publish_gap_response_report_rti_capsule_audit": "passed",
+  "audit": {
+    "events": 411,
+    "head": "faf0da9187966f835b3017d70c49427ed14a4faf241a3890ddae5855894d0e0a"
+  },
+  "external_integrations": "not tested"
+}

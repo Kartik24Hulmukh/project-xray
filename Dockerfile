@@ -44,7 +44,9 @@ COPY --from=builder /venv /venv
 COPY app/ ./app/
 COPY db/ ./db/
 COPY schemas/ ./schemas/
+COPY static/ ./static/
 COPY scripts/smoke_e2e.py ./scripts/smoke_e2e.py
+COPY scripts/recovery.py ./scripts/recovery.py
 COPY scripts/verify_capsule.py ./scripts/verify_capsule.py
 COPY scripts/recovery_evidence.py ./scripts/recovery_evidence.py
 COPY requirements.txt .
@@ -52,6 +54,7 @@ COPY requirements.txt .
 # Put the venv on PATH so python3 and pip resolve to the venv
 ENV PATH="/venv/bin:$PATH"
 ENV PORT=8080
+ENV BIND_HOST=0.0.0.0
 ENV DB_PATH=/app/data/project_xray.db
 ENV PYTHONUNBUFFERED=1
 

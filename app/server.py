@@ -17,14 +17,14 @@ from urllib.parse import parse_qs, urlparse
 try:
     from app.audit import append as append_audit, verify as verify_audit
     from app.capabilities import CapabilityPolicy, denial_reason
-    from app.database import connect, db, IS_POSTGRES, IntegrityError, get_schema_version, set_schema_version, table_exists, integrity_check
+    from app.database import connect, db, IS_POSTGRES, IntegrityError, DatabaseBusy, get_schema_version, set_schema_version, table_exists, integrity_check
     from app.operations import send_alert
     from app.security import token_hash, verify_gateway_assertion, verify_proxy
     from app.storage import settings_from_env, verify_managed_object
 except ModuleNotFoundError:
     from audit import append as append_audit, verify as verify_audit
     from capabilities import CapabilityPolicy, denial_reason
-    from database import connect, db, IS_POSTGRES, IntegrityError, get_schema_version, set_schema_version, table_exists, integrity_check
+    from database import connect, db, IS_POSTGRES, IntegrityError, DatabaseBusy, get_schema_version, set_schema_version, table_exists, integrity_check
     from operations import send_alert
     from security import token_hash, verify_gateway_assertion, verify_proxy
     from storage import settings_from_env, verify_managed_object
@@ -130,6 +130,8 @@ def db(write=False):
     try:
         if write and not IS_POSTGRES:
             c.execute('BEGIN IMMEDIATE')
+        elif write and IS_POSTGRES:
+            c.execute('SELECT pg_advisory_xact_lock(1481785689)')
         yield c
         if write:
             c.commit()
@@ -421,7 +423,16 @@ def strict_json(raw):
             out[k] = v
         return out
 
-    return json.loads(raw, object_pairs_hook=pairs)
+    def invalid_constant(value):
+        raise ValueError('non-finite JSON number')
+
+    try:
+        result = json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid_constant)
+    except (RecursionError, UnicodeDecodeError):
+        raise ValueError('invalid JSON encoding or nesting') from None
+    if not isinstance(result, dict):
+        raise ValueError('JSON object required')
+    return result
 
 
 class H(BaseHTTPRequestHandler):
@@ -435,6 +446,11 @@ class H(BaseHTTPRequestHandler):
         self.tx = None
         self.idem = None
         self._xray_headers_sent = False
+        self._pending_response = None
+
+    def safe_request_id(self):
+        value = self.headers.get('X-Request-ID', '')
+        return value if re.fullmatch(r'[A-Za-z0-9_-]{1,64}', value) else uid('req')
 
     def log_message(self, fmt, *args):
         print(
@@ -480,6 +496,10 @@ class H(BaseHTTPRequestHandler):
                     "UPDATE idempotency_keys SET state='completed',response_code=?,response_body=?,completed_at=? WHERE principal=? AND key=?",
                     (code, body, now(), self.idem[0], self.idem[1]),
                 )
+        if self.tx is not None:
+            # Never acknowledge a write until the surrounding transaction commits.
+            self._pending_response = (body, code, extra_headers)
+            return
         self.common(code, 'application/json; charset=utf-8', extra_headers=extra_headers)
         self.wfile.write(body.encode())
 
@@ -518,6 +538,12 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(value.encode())
 
     def body(self):
+        # Reject ambiguous framing rather than disagreeing with an upstream proxy.
+        if self.headers.get('Transfer-Encoding') is not None:
+            raise ValueError('Transfer-Encoding is not supported')
+        lengths = self.headers.get_all('Content-Length', [])
+        if len(lengths) != 1 or not re.fullmatch(r'[0-9]+', lengths[0]):
+            raise ValueError('one valid Content-Length required')
         try:
             n = int(self.headers.get('Content-Length', '0'))
         except ValueError:
@@ -530,7 +556,10 @@ class H(BaseHTTPRequestHandler):
         if ctype != 'application/json':
             raise TypeError('Content-Type must be application/json')
         try:
-            return strict_json(self.rfile.read(n))
+            raw = self.rfile.read(n)
+            if len(raw) != n:
+                raise ValueError('incomplete request body')
+            return strict_json(raw)
         except json.JSONDecodeError:
             raise ValueError('invalid JSON')
 
@@ -558,6 +587,9 @@ class H(BaseHTTPRequestHandler):
 
     def _fail_safe(self, exc, method='GET'):
         """Return a generic 500 without leaking exception details to clients."""
+        if isinstance(exc, DatabaseBusy):
+            return self.out({'error': 'database capacity temporarily unavailable'}, 503,
+                            extra_headers={'Retry-After': '1'})
         import traceback
         path = ''
         try:
@@ -576,7 +608,8 @@ class H(BaseHTTPRequestHandler):
                     'method': method,
                     'path': path,
                     'exception_class': type(exc).__name__,
-                    'stack': traceback.format_exc(),
+                    'stack': [{'file': Path(frame.filename).name, 'line': frame.lineno, 'function': frame.name}
+                              for frame in traceback.extract_tb(exc.__traceback__)],
                 },
                 separators=(',', ':'),
             )
@@ -612,7 +645,7 @@ class H(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         # Explicitly reject cross-origin preflight — same-origin only API
-        self.request_id = self.headers.get('X-Request-ID') or uid('req')
+        self.request_id = self.safe_request_id()
         self.send_response(405)
         self.send_header('Allow', 'GET, POST')
         self.send_header('X-Request-ID', self.request_id)
@@ -701,7 +734,7 @@ class H(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
-        self.request_id = self.headers.get('X-Request-ID') or uid('req')
+        self.request_id = self.safe_request_id()
         try:
             self._handle_get()
         except Exception as exc:
@@ -825,7 +858,17 @@ class H(BaseHTTPRequestHandler):
                     for i, gap in enumerate(dossier['gaps'])
                 ) or '1. No document gaps have been selected.'
                 return self.text(
-                    f"Draft RTI request — not legal advice\n\nTo: Public Information Officer, {project['authority']}\nSubject: Records concerning {project['title']}\n\nPlease provide:\n{items}\n"
+                    f"Draft RTI request — not legal advice\n"
+                    f"{'SYNTHETIC EVALUATION — do not file' if project['synthetic'] else 'Human review required before filing'}\n\n"
+                    f"To: Public Information Officer, {project['authority']}\n"
+                    "PIO postal address: [verify independently]\n"
+                    f"Subject: Request under Section 6(1), Right to Information Act, 2005 — {project['title']}\n\n"
+                    f"Please provide the following records, where held by your authority:\n{items}\n\n"
+                    "Applicant name and contact address: [complete privately; do not publish]\n"
+                    "Date and signature: [complete]\n"
+                    "Before filing: verify the competent authority, applicable central/state rules, "
+                    "fee or exemption, submission method, and requested record descriptions. "
+                    "A record not located in the stated search scope is not proof it does not exist.\n"
                 )
             if len(segments) == 4 and segments[3] == 'capsule':
                 return self.out(dossier_capsule(dossier))
@@ -862,15 +905,23 @@ class H(BaseHTTPRequestHandler):
             '.js': 'application/javascript; charset=utf-8',
             '.css': 'text/css; charset=utf-8',
         }
+        content = p.read_bytes()
         self.common(200, types[p.suffix])
-        self.wfile.write(p.read_bytes())
+        self.wfile.write(content)
 
     def do_POST(self):
-        self.request_id = self.headers.get('X-Request-ID') or uid('req')
+        self.request_id = self.safe_request_id()
+        self._pending_response = None
         try:
             self._handle_post()
+            if self._pending_response is not None:
+                body, code, extra_headers = self._pending_response
+                self.common(code, 'application/json; charset=utf-8', extra_headers=extra_headers)
+                self.wfile.write(body.encode())
         except Exception as exc:
             self._fail_safe(exc, method='POST')
+        finally:
+            self._pending_response = None
 
     def _handle_post(self):
         _metric_inc('requests')
@@ -893,6 +944,8 @@ class H(BaseHTTPRequestHandler):
             data = self.body()
         except OverflowError:
             return self.out({'error': 'request too large'}, 413)
+        except TimeoutError:
+            return self.out({'error': 'request body timeout'}, 408)
         except (ValueError, TypeError) as e:
             # Validation errors may expose field names only; never stack traces
             msg = str(e)
@@ -1294,7 +1347,40 @@ class H(BaseHTTPRequestHandler):
             self.tx = None
 
 
+class BoundedHTTPServer(ThreadingHTTPServer):
+    """Bound active handlers; backpressure admission before creating threads.
+
+    TLS, per-client admission and slow-header protection still belong at the
+    ingress proxy. This process-level limit is a final resource safety boundary.
+    """
+    request_queue_size = 128
+    daemon_threads = True
+
+    def __init__(self, address, handler, max_workers=None):
+        workers = int(os.getenv('MAX_HTTP_WORKERS', '64')) if max_workers is None else max_workers
+        if workers < 1:
+            raise ValueError('MAX_HTTP_WORKERS must be positive')
+        self._slots = threading.BoundedSemaphore(workers)
+        super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        # Backpressure the accept loop instead of closing sockets with unread
+        # POST bodies (which causes TCP resets rather than usable 503 replies).
+        self._slots.acquire()
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
+
+
 if __name__ == '__main__':
     init()
     print(json.dumps({'event': 'startup', 'service': 'project-xray', 'version': '0.4.4', 'port': PORT, 'environment': ENV}))
-    ThreadingHTTPServer(('0.0.0.0', PORT), H).serve_forever()
+    BoundedHTTPServer((os.getenv('BIND_HOST', '127.0.0.1'), PORT), H).serve_forever()

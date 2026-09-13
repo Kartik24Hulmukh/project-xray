@@ -49,3 +49,8 @@
 **Date:** 2026-07-14
 **Decision:** Disable bearer authentication in production, require fresh MFA-marked gateway assertions, verify managed-object metadata, and keep evidence quarantined until an independent scanner clears it.
 **Reason:** Production safety depends on fail-closed boundaries, not operator convention.
+
+## September 2026 runtime hardening
+- Serialize PostgreSQL transitions and global audit verification with transaction advisory lock 1481785689. Correctness before throughput; see docs/HARDENING_2026_09.md.
+- Bound HTTP handlers and PostgreSQL admission; use ingress for total deadlines and distributed abuse controls.
+- Acknowledge JSON mutations after commit, not before. Preserve existing publication and evidence gates.

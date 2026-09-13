@@ -30,3 +30,13 @@
 - [ ] Trusted-monitor mobile capture.
 - [ ] PFMS/treasury reference integration through authorized APIs.
 - [ ] Satellite/BIM integrations.
+
+## Measured September hardening delta
+- [x] Reproduce/fix PostgreSQL concurrent audit forks and pool exhaustion.
+- [x] Verify transactional response ordering and SQLite adapter backup direction.
+- [x] Harden request framing/logging; bound handler admission.
+- [x] Expand synthetic export/restart/restore smoke; add container CI contract.
+- [ ] Pass actual container CI and target-environment operational/editorial gates.
+- [ ] Reconcile abandoned idempotency reservations safely.
+- [ ] Benchmark large-ledger readiness cost and sustained deployment load.
+See docs/HARDENING_2026_09.md for receipts and production no-go conditions.

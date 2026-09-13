@@ -5,6 +5,7 @@ PostgreSQL production deployments must use operator-managed migrations against
 db/schema_postgres.sql. This script only rewrites local SQLite database files.
 """
 import argparse,json,os,sqlite3,sys
+from contextlib import closing
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT));SCHEMA=(ROOT/'db/schema.sql').read_text()
 from app.manifest import create as create_manifest
@@ -19,9 +20,9 @@ def migrate(path,backup_key=None,audit_key=None):
  if version==3:src.close();return {'status':'already_v3','database':str(path)}
  if version!=2:src.close();raise RuntimeError(f'expected schema v2, found v{version}')
  if any(x.exists() for x in (backup,manifest,tmp)):src.close();raise FileExistsError('migration artifacts already exist')
- with sqlite3.connect(backup) as dst:src.backup(dst)
+ with closing(sqlite3.connect(backup)) as dst:src.backup(dst)
  src.close();os.chmod(backup,0o600);create_manifest(manifest,backup,backup_key,{'schema_version':2,'purpose':'pre-v3-migration'})
- with sqlite3.connect(path) as old,sqlite3.connect(tmp) as new:old.backup(new)
+ with closing(sqlite3.connect(path)) as old, closing(sqlite3.connect(tmp)) as new:old.backup(new)
  c=sqlite3.connect(tmp);c.row_factory=sqlite3.Row
  try:
   c.execute('PRAGMA foreign_keys=OFF')

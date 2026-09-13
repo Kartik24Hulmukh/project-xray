@@ -59,6 +59,7 @@ class TestIdempotencyRecovery(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.http.shutdown()
+        cls.http.server_close()
         TMP.cleanup()
 
     def setUp(self):

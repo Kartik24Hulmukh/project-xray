@@ -16,7 +16,7 @@ class TestOperations(unittest.TestCase):
  @classmethod
  def setUpClass(cls):cls.http=ThreadingHTTPServer(('127.0.0.1',0),Fake);threading.Thread(target=cls.http.serve_forever,daemon=True).start();cls.url=f'http://127.0.0.1:{cls.http.server_address[1]}'
  @classmethod
- def tearDownClass(cls):cls.http.shutdown()
+ def tearDownClass(cls):cls.http.shutdown();cls.http.server_close()
  def test_managed_storage_head_is_signed_and_metadata_bound(self):
   result=verify_managed_object('s3://evidence/case/a.pdf','a'*64,128,self.url,'evidence','access','secret','ap-south-1');self.assertEqual(result['size_bytes'],128);self.assertTrue(Fake.received['Authorization'].startswith('AWS4-HMAC-SHA256 '))
   with self.assertRaises(RuntimeError):verify_managed_object('s3://evidence/case/a.pdf','b'*64,128,self.url,'evidence','access','secret','ap-south-1')

@@ -19,6 +19,7 @@ import re
 import json
 import os
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 from pathlib import Path
@@ -176,7 +177,7 @@ def backup(source, destination, key=None, audit_key=None):
         source = Path(source)
         if not source.is_file():
             raise FileNotFoundError(source)
-        with sqlite3.connect(source) as src, sqlite3.connect(tmp) as dst:
+        with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(tmp)) as dst:
             src.backup(dst)
         checks = integrity(tmp, audit_key)
         os.chmod(tmp, 0o600)
@@ -242,7 +243,7 @@ def restore(source, destination, force=False, key=None, audit_key=None, manifest
     tmp = destination.with_suffix(destination.suffix + '.restoring')
     if tmp.exists():
         tmp.unlink()
-    with sqlite3.connect(source) as src, sqlite3.connect(tmp) as dst:
+    with closing(sqlite3.connect(source)) as src, closing(sqlite3.connect(tmp)) as dst:
         src.backup(dst)
     restored = integrity(tmp, audit_key)
     if restored != source_checks:

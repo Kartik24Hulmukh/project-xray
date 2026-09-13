@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from contextlib import closing
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,7 @@ class TestCore(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.http.shutdown()
+        cls.http.server_close()
         TMP.cleanup()
 
     def setUp(self):
@@ -323,6 +325,7 @@ class TestCore(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             c.execute('DELETE FROM audit_events')
         c.close()
+        c.close()
 
     def test_document_quarantine_and_deduplication(self):
         pid, src, _ = self.create_project_source_claim()
@@ -432,7 +435,7 @@ class TestCore(unittest.TestCase):
         self.create_project_source_claim()
         copy = tempfile.NamedTemporaryFile(suffix='.db', delete=False)
         copy.close()
-        with server.db() as src, sqlite3.connect(copy.name) as dst:
+        with server.db() as src, closing(sqlite3.connect(copy.name)) as dst:
             src.backup(dst)
         c = sqlite3.connect(copy.name)
         c.execute('DROP TRIGGER checkpoint_no_update')

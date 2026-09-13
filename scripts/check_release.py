@@ -17,7 +17,7 @@ for raw in tracked:
  if any(pattern.search(data) for pattern in secret_patterns):print('Potential secret:',p);sys.exit(1)
 compile_result=subprocess.run([sys.executable,'-m','compileall','-q','app','scripts','tests'],cwd=root)
 if compile_result.returncode:sys.exit(compile_result.returncode)
-tests=subprocess.run([sys.executable,'-m','unittest','discover','-s',str(root/'tests'),'-v'],cwd=root)
+tests=subprocess.run([sys.executable,'-m','unittest','discover','-s','tests','-v'],cwd=root)
 if tests.returncode:sys.exit(tests.returncode)
 ui=subprocess.run(['node','scripts/ui_acceptance.mjs'],cwd=root)
 if ui.returncode:sys.exit(ui.returncode)

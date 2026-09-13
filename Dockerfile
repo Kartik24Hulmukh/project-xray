@@ -6,7 +6,8 @@ WORKDIR /build
 
 # Install build dependencies needed to compile native wheels (psycopg2, cryptography)
 # These are NOT copied to the final image
-RUN apk add --no-cache --virtual .build-deps \
+RUN apk upgrade --no-cache \
+    && apk add --no-cache --virtual .build-deps \
     gcc \
     musl-dev \
     libffi-dev \
@@ -28,7 +29,9 @@ WORKDIR /app
 
 # Install only runtime shared libraries needed by psycopg2 and cryptography
 # libpq for psycopg2, libffi and openssl for cryptography
-RUN apk add --no-cache \
+# Refresh inherited packages too; apk add alone leaves vulnerable base libraries.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
     libpq \
     libffi \
     openssl \

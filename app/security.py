@@ -97,19 +97,20 @@ def resolve_single_role(roles_header):
 
 
 def _remember_assertion(signature, expires_at):
-    """Record assertion signature to block replay within max_age window."""
+    """Consume once without evicting unexpired replay evidence.
+
+    Fail closed at capacity. Expiries need not follow insertion order (gateway
+    and legacy assertions have different lifetimes and clock skew).
+    This cache is process-local; it is not cross-replica replay protection.
+    """
     now = time.time()
     with _replay_lock:
-        while _replay_seen:
-            k, exp = next(iter(_replay_seen.items()))
-            if exp >= now:
-                break
-            _replay_seen.popitem(last=False)
-        if signature in _replay_seen:
+        expired = [key for key, expiry in _replay_seen.items() if expiry < now]
+        for key in expired:
+            del _replay_seen[key]
+        if signature in _replay_seen or len(_replay_seen) >= _REPLAY_MAX:
             return False
         _replay_seen[signature] = expires_at
-        while len(_replay_seen) > _REPLAY_MAX:
-            _replay_seen.popitem(last=False)
     return True
 
 

@@ -137,6 +137,59 @@ class TestCore(unittest.TestCase):
         self.req(f'/api/projects/{pid}/claims/{cid}/reviews', 'POST', {'decision': 'approve'}, 'review-token-b')
         return self.req(f'/api/projects/{pid}/claims/{cid}/publish', 'POST', {}, 'test-admin-secret-long-enough')
 
+    def test_creation_cannot_bypass_project_publication_gate(self):
+        status, body, _ = self.req('/api/projects', 'POST',
+            {'title': 'SYNTHETIC bypass', 'synthetic': True, 'status': 'published'},
+            'test-admin-secret-long-enough')
+        self.assertEqual(status, 400)
+
+    def test_review_cannot_silently_unpublish_a_public_claim(self):
+        pid, _, cid = self.create_project_source_claim()
+        self.assertEqual(self.publish_claim(pid, cid)[0], 200)
+        status, token, _ = self.req('/api/auth/tokens', 'POST',
+            {'principal': 'reviewer-c', 'role': 'reviewer'}, 'test-admin-secret-long-enough')
+        self.assertEqual(status, 201)
+        status, _, _ = self.req(f'/api/projects/{pid}/claims/{cid}/reviews',
+            'POST', {'decision': 'reject'}, token['token'])
+        self.assertEqual(status, 409)
+        with server.db() as c:
+            claim = c.execute('SELECT publication_state FROM claims WHERE id=?', (cid,)).fetchone()
+        self.assertEqual(claim['publication_state'], 'published')
+
+    def test_cross_project_source_cannot_be_used_for_claim(self):
+        _, source_id, _ = self.create_project_source_claim()
+        other, _, _ = self.create_project_source_claim()
+        status, _, _ = self.req(f'/api/projects/{other}/claims', 'POST',
+            {'claim_type': 'official_claim', 'text': 'SYNTHETIC cross-project',
+             'source_id': source_id, 'passage': 'SYNTHETIC anchor'},
+            'test-admin-secret-long-enough')
+        self.assertEqual(status, 400)
+
+    def test_cross_project_sources_rejected_for_documents_and_responses(self):
+        _, sid, _ = self.create_project_source_claim()
+        pid, _, _ = self.create_project_source_claim()
+        for kind, body in (
+            ('documents', {'filename': 'synthetic.pdf', 'media_type': 'application/pdf',
+                           'size_bytes': 10, 'sha256': 'b' * 64}),
+            ('responses', {'responder': 'Synthetic authority', 'text': 'Synthetic response'}),
+        ):
+            with self.subTest(kind=kind):
+                status, _, _ = self.req(f'/api/projects/{pid}/{kind}', 'POST',
+                    {**body, 'source_id': sid}, 'test-admin-secret-long-enough')
+                self.assertEqual(status, 400)
+
+    def test_rejection_blocks_publication_despite_two_approvals(self):
+        pid, _, cid = self.create_project_source_claim()
+        status, token, _ = self.req('/api/auth/tokens', 'POST',
+            {'principal': 'reviewer-d', 'role': 'reviewer'}, 'test-admin-secret-long-enough')
+        self.assertEqual(status, 201)
+        self.assertEqual(self.req(f'/api/projects/{pid}/claims/{cid}/reviews',
+            'POST', {'decision': 'reject'}, token['token'])[0], 201)
+        self.assertEqual(self.publish_claim(pid, cid)[0], 409)
+        with server.db() as c:
+            claim = c.execute('SELECT publication_state FROM claims WHERE id=?', (cid,)).fetchone()
+        self.assertEqual(claim['publication_state'], 'candidate')
+
     def test_complete_publication_path(self):
         pid, src, cid = self.create_project_source_claim()
         self.assertEqual(

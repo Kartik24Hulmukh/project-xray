@@ -66,6 +66,6 @@ USER app
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s \
-    CMD curl --fail http://127.0.0.1:8080/health || exit 1
+    CMD curl --fail http://127.0.0.1:8080/healthz || exit 1
 
 CMD ["python3", "app/server.py"]

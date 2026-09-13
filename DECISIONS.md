@@ -60,3 +60,12 @@
 - Reject numeric JSON exponent overflow during parsing, including nested values.
 - Refresh inherited Alpine packages in both build stages. Keep the existing HIGH/CRITICAL scanner gate and expired-waiver policy unchanged; a successful image scan must verify the actual resulting artifact.
 - All new projects start unpublished; only the explicit publication endpoint may publish them. Source linkage is project-scoped. Public claims cannot be silently re-reviewed back into private state; use the audited correction workflow. Any current-version rejection vetoes publication (conservative evidence safety); no silent deletion of rejecting reviews.
+
+## 2026-09-13 — bounded opt-in SDK, canonical probes and log minimization
+
+Use explicit server spans rather than auto-instrumenting stdlib HTTP: this preserves
+bounded execution admission, avoids arbitrary URL/query capture, and does not replace
+the stack. Pin SDK + OTLP/HTTP exporter; retain stdlib-only mode when disabled.
+Canonical `/healthz` and `/readyz` coexist with legacy probe aliases. PostgreSQL CI
+must retain version/suite receipts and fail when a configured live suite skips.
+See `docs/OTEL_RUNBOOK.md` for sampling, privacy, bounded export and rollback.

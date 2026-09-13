@@ -222,6 +222,98 @@ class TestIdempotencyRecovery(unittest.TestCase):
         conflict = self.req('/api/projects', 'POST', {'title': 'Other'}, ADMIN, headers=headers)
         self.assertEqual(conflict[0], 409)
 
+class _FencingCases:  # merged into TestIdempotencyRecovery below (shares its server)
+    """A reclaimed lease must not let the original (slow) worker win.
+
+    Scenario: worker A reserves key K, stalls past the stuck TTL, retry B
+    reclaims K and commits.  A must then abort *before* commit (409, no
+    duplicate row) and must not delete/complete B's reservation.
+    """
+
+    def test_stale_worker_cannot_complete_after_reclaim(self):
+        key = 'k-fenced'
+        payload = {'title': 'Fenced once', 'synthetic': True}
+        real_db = server.db
+        state = {'done': False, 'b': None}
+        from contextlib import contextmanager
+
+        def run_retry_b():
+            state['b'] = self.req('/api/projects', 'POST', payload, ADMIN,
+                                  headers={'Idempotency-Key': key})
+
+        @contextmanager
+        def stall_then_continue(write=False):
+            reserved = False
+            if write and not state['done']:
+                with real_db() as c:
+                    reserved = c.execute("SELECT 1 AS x FROM idempotency_keys WHERE principal='admin' AND key=? AND state='processing'", (key,)).fetchone() is not None
+            if reserved:
+                state['done'] = True
+                # Worker A is about to open its write tx: age its reservation
+                # past the TTL and let retry B run to completion first.
+                old = (datetime.now(timezone.utc) - timedelta(seconds=server.IDEMPOTENCY_STUCK_SECONDS + 100)).isoformat()
+                with real_db(write=True) as c:
+                    c.execute("UPDATE idempotency_keys SET created_at=? WHERE principal='admin' AND key=?", (old, key))
+                server.db = real_db
+                t = threading.Thread(target=run_retry_b)
+                t.start(); t.join(10)
+                # A's lease token is now stale (its created_at changed) -> fenced
+            with real_db(write=write) as c:
+                yield c
+
+        server.db = stall_then_continue
+        try:
+            code_a, body_a, _ = self.req('/api/projects', 'POST', payload, ADMIN,
+                                         headers={'Idempotency-Key': key})
+        finally:
+            server.db = real_db
+        code_b, body_b, _ = state['b']
+        self.assertEqual(code_b, 201, body_b)
+        self.assertEqual(code_a, 409, body_a)
+        self.assertIn('reclaimed', body_a['error'])
+        self.assertIn('request_id', body_a)
+        with server.db() as c:
+            n = c.execute("SELECT COUNT(*) AS n FROM projects WHERE title=?", ('Fenced once',)).fetchone()['n']
+            row = c.execute("SELECT state,response_code FROM idempotency_keys WHERE principal='admin' AND key=?", (key,)).fetchone()
+        self.assertEqual(n, 1, 'stale worker created a duplicate resource')
+        self.assertEqual(dict(row)['state'], 'completed')
+        self.assertEqual(dict(row)['response_code'], 201)
+        # Replay with the same key returns B's stored response verbatim.
+        code_r, body_r, _ = self.req('/api/projects', 'POST', payload, ADMIN,
+                                     headers={'Idempotency-Key': key})
+        self.assertEqual(code_r, 201)
+        self.assertEqual(body_r['id'], body_b['id'])
+
+    def test_stuck_ttl_is_clamped_to_safe_floor(self):
+        self.assertGreaterEqual(server.IDEMPOTENCY_STUCK_SECONDS, server.IDEMPOTENCY_STUCK_FLOOR_SECONDS)
+        for raw in ('0', '-5', '1', 'garbage', None, ''):
+            self.assertGreaterEqual(server.resolve_stuck_seconds(raw), server.IDEMPOTENCY_STUCK_FLOOR_SECONDS, raw)
+        self.assertEqual(server.resolve_stuck_seconds('600'), 600)
+        self.assertEqual(server.resolve_stuck_seconds(None), 300)
+
+    def test_release_is_fenced_to_own_lease(self):
+        # A reservation held by another live worker must survive a stale release.
+        key = 'k-release-fence'
+        live_at = datetime.now(timezone.utc).isoformat()
+        with server.db(True) as c:
+            c.execute("INSERT INTO idempotency_keys(principal,key,request_hash,state,created_at) VALUES(?,?,?,?,?)",
+                      ('admin', key, '1' * 64, 'processing', live_at))
+        h = server.H.__new__(server.H)
+        h.idem = ('admin', key, '1999-01-01T00:00:00+00:00')
+        h.release_idempotency()
+        with server.db() as c:
+            row = c.execute("SELECT state FROM idempotency_keys WHERE principal='admin' AND key=?", (key,)).fetchone()
+        self.assertIsNotNone(row, 'stale release deleted a live reservation')
+        h.idem = ('admin', key, live_at)
+        h.release_idempotency()
+        with server.db() as c:
+            row = c.execute("SELECT state FROM idempotency_keys WHERE principal='admin' AND key=?", (key,)).fetchone()
+        self.assertIsNone(row)
+
+
+for _name in [n for n in dir(_FencingCases) if n.startswith('test_')]:
+    setattr(TestIdempotencyRecovery, _name, getattr(_FencingCases, _name))
+
 
 if __name__ == '__main__':
     unittest.main()

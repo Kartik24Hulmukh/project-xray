@@ -55,6 +55,7 @@ METRICS = {
     'idempotency_replays': 0,
     'idempotency_conflicts': 0,
     'idempotency_stuck_reclaims': 0,
+    'idempotency_lease_lost': 0,
     'quarantine_blocks': 0,
 }
 
@@ -111,7 +112,29 @@ CLAIM_TYPES = {
 }
 PUBLIC_STATES = {'published', 'disputed', 'corrected', 'withdrawn'}
 ID_RE = re.compile(r'^[a-z]{3}_[a-f0-9]{16}$')
-IDEMPOTENCY_STUCK_SECONDS = int(os.getenv('IDEMPOTENCY_STUCK_SECONDS', '300'))
+IDEMPOTENCY_STUCK_FLOOR_SECONDS = 30
+
+
+def resolve_stuck_seconds(raw):
+    """Parse IDEMPOTENCY_STUCK_SECONDS and clamp it to a safe floor.
+
+    A reservation younger than the per-request socket timeout (15 s) can
+    still be owned by a live worker; reclaiming it would let a same-key
+    retry create a duplicate resource.  Values below the floor (including 0
+    and negatives) are therefore raised to the floor, never honoured.
+    """
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        value = 300
+    return max(IDEMPOTENCY_STUCK_FLOOR_SECONDS, value)
+
+
+IDEMPOTENCY_STUCK_SECONDS = resolve_stuck_seconds(os.getenv('IDEMPOTENCY_STUCK_SECONDS', '300'))
+
+
+class IdempotencyLeaseLost(Exception):
+    """The reservation this worker held was reclaimed by another request."""
 
 
 def idempotency_age_seconds(created_at):
@@ -516,10 +539,18 @@ class H(BaseHTTPRequestHandler):
         if 200 <= code < 300 and self.idem:
             c = self.tx
             if c:
-                c.execute(
-                    "UPDATE idempotency_keys SET state='completed',response_code=?,response_body=?,completed_at=? WHERE principal=? AND key=?",
-                    (code, body, now(), self.idem[0], self.idem[1]),
-                )
+                # Fenced completion: only the worker whose reservation
+                # (created_at acts as the lease token) is still live may
+                # record the outcome.  If the lease was reclaimed and
+                # re-issued to a retry, abort *before* commit so the retry
+                # remains the single writer (exactly-once, no duplicate row).
+                updated = c.execute(
+                    "UPDATE idempotency_keys SET state='completed',response_code=?,response_body=?,completed_at=? WHERE principal=? AND key=? AND state='processing' AND created_at=?",
+                    (code, body, now(), self.idem[0], self.idem[1], self.idem[2]),
+                ).rowcount
+                if updated != 1:
+                    _metric_inc('idempotency_lease_lost')
+                    raise IdempotencyLeaseLost(self.idem[1])
         if self.tx is not None:
             # Never acknowledge a write until the surrounding transaction commits.
             self._pending_response = (body, code, extra_headers)
@@ -617,6 +648,9 @@ class H(BaseHTTPRequestHandler):
         # handle so the error reply is actually written to the client instead
         # of being buffered for a commit that will never happen.
         self.tx = None
+        if isinstance(exc, IdempotencyLeaseLost):
+            return self.out({'error': 'idempotency reservation was reclaimed by a concurrent retry; replay with the same key', 'request_id': self.request_id or uid('req')}, 409,
+                            extra_headers={'Retry-After': '1'})
         if isinstance(exc, DatabaseBusy):
             return self.out({'error': 'database capacity temporarily unavailable'}, 503,
                             extra_headers={'Retry-After': '1'})
@@ -774,21 +808,24 @@ class H(BaseHTTPRequestHandler):
                         return False
                     self.out({'error': 'request with this idempotency key is processing'}, 409)
                     return False
+            reserved_at = now()
             c.execute(
                 'INSERT INTO idempotency_keys(principal,key,request_hash,state,created_at) VALUES(?,?,?,?,?)',
-                (actor, key, request_hash, 'processing', now()),
+                (actor, key, request_hash, 'processing', reserved_at),
             )
-        self.idem = (actor, key)
+        self.idem = (actor, key, reserved_at)
         return True
 
     def release_idempotency(self):
         """Free a reservation when nothing was acknowledged to the client."""
-        actor, key = self.idem
+        actor, key, reserved_at = self.idem
         try:
             with db(True) as c:
+                # Fenced release: never delete a reservation re-issued to a
+                # later retry after this one was reclaimed as stuck.
                 c.execute(
-                    "DELETE FROM idempotency_keys WHERE principal=? AND key=? AND state='processing'",
-                    (actor, key),
+                    "DELETE FROM idempotency_keys WHERE principal=? AND key=? AND state='processing' AND created_at=?",
+                    (actor, key, reserved_at),
                 )
         except Exception:
             pass

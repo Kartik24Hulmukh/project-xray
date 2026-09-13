@@ -253,7 +253,10 @@ def rows(cur):
     return [dict(r) for r in cur.fetchall()]
 
 
-def source(c, sid):
+def source(c, sid, project_id=None):
+    if project_id is not None:
+        return c.execute('SELECT * FROM sources WHERE id=? AND project_id=?',
+                         (sid, project_id)).fetchone()
     return c.execute('SELECT * FROM sources WHERE id=?', (sid,)).fetchone()
 
 
@@ -1022,6 +1025,8 @@ class H(BaseHTTPRequestHandler):
                 if path == '/api/projects':
                     if role != 'admin':
                         return self.out({'error': 'admin required'}, 403)
+                    if data.get('status', 'research') not in ('research', 'review'):
+                        return self.out({'error': 'new projects must be unpublished; use publication workflow'}, 400)
                     project_id = uid('prj')
                     timestamp = now()
                     c.execute(
@@ -1089,7 +1094,7 @@ class H(BaseHTTPRequestHandler):
                         or not 0 <= size <= MAX
                     ):
                         return self.out({'error': 'invalid document metadata'}, 400)
-                    if source_id and not source(c, source_id):
+                    if source_id and not source(c, source_id, project_id):
                         return self.out({'error': 'source not found'}, 400)
                     if ENV == 'production':
                         bucket = os.getenv('STORAGE_BUCKET', '')
@@ -1154,7 +1159,7 @@ class H(BaseHTTPRequestHandler):
                     if (
                         data.get('publication_state', 'candidate') != 'candidate'
                         or claim_type not in CLAIM_TYPES
-                        or not source(c, source_id)
+                        or not source(c, source_id, project_id)
                         or not (passage or page_ref)
                     ):
                         return self.out({'error': 'candidate with valid type, source and anchor required'}, 400)
@@ -1190,6 +1195,8 @@ class H(BaseHTTPRequestHandler):
                     decision = data.get('decision')
                     if not claim:
                         return self.out({'error': 'claim not found'}, 404)
+                    if claim['publication_state'] not in ('candidate', 'reviewed'):
+                        return self.out({'error': 'public claims require an explicit correction before new review'}, 409)
                     if claim['created_by'] == actor:
                         return self.out({'error': 'creator cannot review own claim'}, 409)
                     if decision not in ('approve', 'reject'):
@@ -1211,7 +1218,11 @@ class H(BaseHTTPRequestHandler):
                         "SELECT COUNT(*) n FROM claim_reviews WHERE claim_id=? AND claim_version=? AND decision='approve'",
                         (segments[4], claim['version']),
                     ).fetchone()['n']
-                    state = 'reviewed' if approvals >= 2 else 'candidate'
+                    rejected = c.execute(
+                        "SELECT COUNT(*) n FROM claim_reviews WHERE claim_id=? AND claim_version=? AND decision='reject'",
+                        (segments[4], claim['version']),
+                    ).fetchone()['n']
+                    state = 'reviewed' if approvals >= 2 and not rejected else 'candidate'
                     c.execute('UPDATE claims SET publication_state=?,updated_at=? WHERE id=?', (state, now(), segments[4]))
                     audit(c, actor, 'review', 'claim', segments[4], f"version={claim['version']};{decision}")
                     return self.out({'id': review_id, 'version': claim['version'], 'approvals': approvals, 'publication_state': state}, 201)
@@ -1230,8 +1241,12 @@ class H(BaseHTTPRequestHandler):
                         "SELECT COUNT(DISTINCT reviewer) n FROM claim_reviews WHERE claim_id=? AND claim_version=? AND decision='approve'",
                         (segments[4], claim['version']),
                     ).fetchone()['n']
-                    if approvals < 2:
-                        return self.out({'error': 'two current-version approvals required'}, 409)
+                    rejected = c.execute(
+                        "SELECT COUNT(*) n FROM claim_reviews WHERE claim_id=? AND claim_version=? AND decision='reject'",
+                        (segments[4], claim['version']),
+                    ).fetchone()['n']
+                    if approvals < 2 or rejected:
+                        return self.out({'error': 'two current-version approvals and no rejection required'}, 409)
                     if not source_publishable(c, claim['source_id']):
                         _metric_inc('quarantine_blocks')
                         return self.out({'error': 'source document remains quarantined or rejected'}, 409)
@@ -1302,7 +1317,7 @@ class H(BaseHTTPRequestHandler):
                     if role != 'admin':
                         return self.out({'error': 'admin required'}, 403)
                     source_id = data.get('source_id') or None
-                    if source_id and not source(c, source_id):
+                    if source_id and not source(c, source_id, project_id):
                         return self.out({'error': 'source not found'}, 400)
                     response_id = uid('rsp')
                     c.execute(

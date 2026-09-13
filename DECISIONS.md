@@ -59,3 +59,4 @@
 - Never evict unexpired authentication replay records for capacity. Reject new assertions when the bounded cache is full; reclaim all expired entries even if expiries arrive out of order. The process-local cache is still not a cross-replica guarantee.
 - Reject numeric JSON exponent overflow during parsing, including nested values.
 - Refresh inherited Alpine packages in both build stages. Keep the existing HIGH/CRITICAL scanner gate and expired-waiver policy unchanged; a successful image scan must verify the actual resulting artifact.
+- All new projects start unpublished; only the explicit publication endpoint may publish them. Source linkage is project-scoped. Public claims cannot be silently re-reviewed back into private state; use the audited correction workflow. Any current-version rejection vetoes publication (conservative evidence safety); no silent deletion of rejecting reviews.

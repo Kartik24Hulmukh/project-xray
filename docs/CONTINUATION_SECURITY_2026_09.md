@@ -26,3 +26,9 @@ python3 scripts/stress_local.py --requests 5000 --output artifacts/continuation/
 ```
 
 Use disposable local data only. The 100-client load is synthetic with raised rate limits, not 100x throughput/value or a prolonged production soak. Independent subagent execution is unavailable; separate test/security/stress work streams run as parallel processes, not independent expert review.
+
+## Second red-team loop: publication integrity
+
+Three additional HTTP regressions failed before these fixes: project creation accepted `status=published` without the publication gate (also bypassing the publication kill switch); a new reviewer could silently move an already-public claim back to reviewed/candidate; a claim could attach a source belonging to another project. New projects now accept only research/review, public-claim review requires explicit correction first, and claims/documents/responses require project-scoped sources. A current-version rejection also blocks publication even after two other approvals. Rejected candidates remain blocked; do not erase a rejecting review to publish—create a new corrected candidate and retain the rejected record until a versioned candidate-revision workflow exists.
+
+Acceptance tests exercise HTTP writes, persistent state, cross-project documents/responses and rejection alongside two approvals. No schema migration; historical rows are not rewritten. Operators must inspect existing public projects and cross-project references before real-case publication; these fixes prevent new bad writes, not certify old data.

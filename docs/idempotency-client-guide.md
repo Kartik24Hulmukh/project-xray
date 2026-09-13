@@ -1,4 +1,4 @@
-# Idempotency-Key client contract (v0.4.5)
+# Idempotency-Key client contract (v0.4.6)
 
 In `APP_ENV=production` every `POST` to `/api/*` **must** carry an `Idempotency-Key`
 header (1-128 chars, unique per logical operation, per principal). The server

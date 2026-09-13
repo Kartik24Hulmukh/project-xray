@@ -1,5 +1,11 @@
 # Release notes
 
+## v0.4.6 — serialisation-safe idempotency fencing and truthful versioning
+
+- Fenced stuck-reservation reclaim by the observed lease token.
+- Resolve reservation INSERT races as replay or retryable 409 with `Retry-After`, never opaque 500.
+- Added PostgreSQL statement-level fencing coverage and aligned runtime/package/SBOM versions.
+
 ## v0.4.4-controlled-preview-rc — council, legal and handoff hardening
 
 - Added an Ed25519 integrity-bound scanner-attestation contract with exact object-version/hash/size binding, freshness, nonce, engine/policy identity and short-read rejection.

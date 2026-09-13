@@ -1,5 +1,32 @@
 from pathlib import Path
 import subprocess,sys,re
+import shutil
+
+BROWSER_REMEDIATION='npm ci && npx playwright install chromium'
+BROWSER_PROBE="const fs=require('fs');const p=require('playwright');const e=p.chromium.executablePath();if(!e||!fs.existsSync(e)){console.error('XRAY_BROWSER_MISSING '+e);process.exit(3);}"
+
+def browser_acceptance_preflight(root,runner=subprocess.run,which=shutil.which):
+    """Classify UI-acceptance provisioning state before the gate runs.
+
+    Returns a list of actionable environment problems. An empty list means
+    'go': either the browser is provisioned, or Playwright is not declared by
+    this repo at all (in which case scripts/ui_acceptance.mjs owns the call).
+    A non-empty list is an environment/provisioning fault and must exit 2,
+    never 1 - exit 1 is reserved for a real UI regression.
+    """
+    if which('node') is None:
+        return ['node executable not found on PATH; install Node.js 18+ (release gate cannot run UI acceptance)']
+    probe=runner(['node','-e',BROWSER_PROBE],cwd=root,capture_output=True)
+    if probe.returncode==0:
+        return []
+    err=(probe.stderr or b'')
+    if isinstance(err,bytes):err=err.decode('utf-8','replace')
+    if 'XRAY_BROWSER_MISSING' in err:
+        return ['Playwright Chromium binary is declared but not installed: '+err.strip().split('XRAY_BROWSER_MISSING',1)[1].strip()]
+    if 'Cannot find module' in err or 'ERR_MODULE_NOT_FOUND' in err:
+        return []
+    return []
+
 root=Path(__file__).resolve().parents[1]
 required=['README.md','AGENTS.md','LICENSE','SECURITY.md','CONTRIBUTING.md','CODE_OF_CONDUCT.md','docs/ROADMAP_72_HOURS.md','docs/ACCEPTANCE_CRITERIA.md','docs/EVIDENCE_POLICY.md','docs/THREAT_MODEL.md','Dockerfile','docker-compose.yml','app/server.py','tests/test_api.py','db/schema.sql']
 missing=[x for x in required if not (root/x).exists()]
@@ -19,8 +46,13 @@ compile_result=subprocess.run([sys.executable,'-m','compileall','-q','app','scri
 if compile_result.returncode:sys.exit(compile_result.returncode)
 tests=subprocess.run([sys.executable,'-m','unittest','discover','-s','tests','-v'],cwd=root)
 if tests.returncode:sys.exit(tests.returncode)
+provisioning=browser_acceptance_preflight(root)
+if provisioning:
+ for problem in provisioning:print('Release gate environment fault:',problem)
+ print('Remediation:',BROWSER_REMEDIATION)
+ sys.exit(2)
 ui=subprocess.run(['node','scripts/ui_acceptance.mjs'],cwd=root)
-if ui.returncode:sys.exit(ui.returncode)
+if ui.returncode:sys.exit(1)
 rehearsal=subprocess.run([sys.executable,'scripts/preflight_prod_env.py','--rehearsal-template','--output','artifacts/prod-rehearsal/preflight.json'],cwd=root)
 if rehearsal.returncode:sys.exit(rehearsal.returncode)
 rehearsal=subprocess.run([sys.executable,'scripts/rehearse_production.py'],cwd=root)

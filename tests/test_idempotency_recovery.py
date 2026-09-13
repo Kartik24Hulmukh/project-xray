@@ -49,6 +49,7 @@ class TestIdempotencyRecovery(unittest.TestCase):
             database.DB_PATH = server.DB
             database.DATABASE_URL = ''
             database.IS_POSTGRES = False
+            server.IS_POSTGRES = False
         except Exception:
             pass
         server.init()

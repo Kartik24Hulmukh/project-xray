@@ -6,14 +6,17 @@ SCRIPT=ROOT/'scripts'/'check_release.py'
 SOURCE=SCRIPT.read_text()
 TREE=ast.parse(SOURCE)
 
+def _load_function(name):
+ for node in TREE.body:
+  if isinstance(node,ast.FunctionDef) and node.name==name:
+   namespace={'shutil':shutil,'Path':Path,'json':json,'subprocess':__import__('subprocess')}
+   exec(compile(ast.Module(body=[node],type_ignores=[]),str(SCRIPT),'exec'),namespace)
+   return namespace[name]
+ raise AssertionError(name+' is missing from scripts/check_release.py')
+
 
 def _load_preflight():
-    for node in TREE.body:
-        if isinstance(node,ast.FunctionDef) and node.name=='ui_gate_preflight':
-            namespace={'shutil':shutil,'Path':Path,'json':json}
-            exec(compile(ast.Module(body=[node],type_ignores=[]),str(SCRIPT),'exec'),namespace)
-            return namespace['ui_gate_preflight']
-    raise AssertionError('ui_gate_preflight is missing from scripts/check_release.py')
+    return _load_function('ui_gate_preflight')
 
 
 class ReleaseGatePreflightContract(unittest.TestCase):
@@ -45,6 +48,28 @@ class ReleaseGatePreflightContract(unittest.TestCase):
             (Path(tmp)/'package.json').write_text(json.dumps({'dependencies':{'playwright':'^1.40.0'}}))
             (Path(tmp)/'node_modules'/'playwright').mkdir(parents=True)
             self.assertEqual(preflight(Path(tmp)),[])
+
+
+    def test_browser_preflight_precedes_browser_acceptance(self):
+        browser_line=None
+        ui_line=None
+        for node in ast.walk(TREE):
+            if isinstance(node,ast.Call) and getattr(node.func,'id','')=='browser_acceptance_preflight':
+                browser_line=node.lineno
+            if isinstance(node,ast.Constant) and node.value=='scripts/ui_acceptance.mjs':
+                ui_line=node.lineno
+        self.assertIsNotNone(browser_line,'release gate never checks the Playwright browser executable')
+        self.assertLess(browser_line,ui_line,'browser preflight must run before UI acceptance')
+
+    def test_missing_playwright_browser_is_actionable(self):
+        browser_preflight=_load_function('browser_acceptance_preflight')
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/'package.json').write_text(json.dumps({'dependencies':{'playwright':'^1.40.0'}}))
+            (root/'node_modules'/'playwright').mkdir(parents=True)
+            problems=browser_preflight(root)
+            self.assertTrue(problems)
+            self.assertTrue(any('playwright install chromium' in p for p in problems),problems)
 
     def test_required_packages_track_the_real_manifest(self):
         if shutil.which('node') is None:

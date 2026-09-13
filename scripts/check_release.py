@@ -36,7 +36,23 @@ def ui_gate_preflight(root):
  if missing:
   problems.append("browser acceptance dependencies missing from node_modules (%s) - run 'npm ci' in the repository root"%', '.join(missing))
  return problems
+def browser_acceptance_preflight(root):
+ """Check that Playwright's declared Chromium executable is installed.
+
+ npm ci installs the JavaScript package but deliberately does not always
+ download its browser binary; report that provisioning fault before the UI
+ suite so exit 1 remains reserved for an acceptance regression.
+ """
+ if 'playwright' not in json.loads((root/'package.json').read_text()).get('dependencies',{}):
+  return []
+ probe=subprocess.run(['node','-e',"import('playwright').then(({chromium})=>process.stdout.write(chromium.executablePath())).catch(()=>process.exit(1))"],cwd=root,capture_output=True,text=True)
+ executable=Path(probe.stdout.strip())
+ if probe.returncode or not executable.is_file():
+  return ["Playwright Chromium executable is missing - run 'npx playwright install chromium' in the repository root"]
+ return []
 ui_problems=ui_gate_preflight(root)
+if not ui_problems:
+ ui_problems=browser_acceptance_preflight(root)
 if ui_problems:
  for problem in ui_problems:print('Release gate preflight failed:',problem)
  sys.exit(2)

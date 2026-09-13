@@ -69,3 +69,17 @@ class TestReleaseIntegrity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestReleaseCheckDiscoveryContract(unittest.TestCase):
+    """scripts/check_release.py must discover tests relative to the subprocess cwd (repository root).
+
+    Regression for the turn-8 release-automation defect: an absolute ``root/tests`` start
+    directory combined with ``cwd=root`` made module import depend on the caller's cwd.
+    """
+
+    def test_release_check_uses_repo_relative_discovery(self):
+        src = (ROOT / "scripts/check_release.py").read_text()
+        self.assertNotIn("str(root/'tests')", src)
+        self.assertIn("'discover','-s','tests','-v'", src)
+        self.assertIn("cwd=root", src)

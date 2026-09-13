@@ -1,0 +1,136 @@
+{
+ "scope": "local synthetic red-team fuzz",
+ "cases": [
+  {
+   "case": "malformed_json",
+   "status": 400,
+   "allowed": [
+    400
+   ],
+   "pass": true
+  },
+  {
+   "case": "empty_body",
+   "status": 400,
+   "allowed": [
+    400
+   ],
+   "pass": true
+  },
+  {
+   "case": "huge_payload_2mb",
+   "status": 400,
+   "allowed": [
+    400,
+    413
+   ],
+   "pass": true
+  },
+  {
+   "case": "no_auth_write",
+   "status": 401,
+   "allowed": [
+    401,
+    403
+   ],
+   "pass": true
+  },
+  {
+   "case": "bad_token",
+   "status": 401,
+   "allowed": [
+    401,
+    403
+   ],
+   "pass": true
+  },
+  {
+   "case": "traversal_dotdot",
+   "status": 404,
+   "allowed": [
+    400,
+    403,
+    404
+   ],
+   "pass": true
+  },
+  {
+   "case": "traversal_encoded",
+   "status": 404,
+   "allowed": [
+    400,
+    403,
+    404
+   ],
+   "pass": true
+  },
+  {
+   "case": "null_byte_path",
+   "status": 404,
+   "allowed": [
+    400,
+    403,
+    404
+   ],
+   "pass": true
+  },
+  {
+   "case": "unknown_method",
+   "status": 501,
+   "allowed": [
+    400,
+    404,
+    405,
+    501
+   ],
+   "pass": true
+  },
+  {
+   "case": "unicode_rtl_name",
+   "status": 400,
+   "allowed": [
+    201,
+    400
+   ],
+   "pass": true
+  },
+  {
+   "case": "nested_bomb",
+   "status": 400,
+   "allowed": [
+    400,
+    413
+   ],
+   "pass": true
+  },
+  {
+   "case": "type_confusion",
+   "status": 400,
+   "allowed": [
+    400
+   ],
+   "pass": true
+  },
+  {
+   "case": "sql_meta_in_name",
+   "status": 400,
+   "allowed": [
+    201,
+    400
+   ],
+   "pass": true
+  },
+  {
+   "case": "idem_key_overlong",
+   "status": 400,
+   "allowed": [
+    201,
+    400
+   ],
+   "pass": true
+  }
+ ],
+ "health_after_fuzz": 200,
+ "no_5xx_or_crash": true,
+ "all_pass": true
+}

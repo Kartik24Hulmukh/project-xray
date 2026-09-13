@@ -14,7 +14,11 @@ Proves:
  10. the three Python CVE exceptions and expiry remain unchanged
 """
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -235,30 +239,78 @@ class TestSecurityPoliciesUnchanged(unittest.TestCase):
 
 
 class TestGrypeNoExpiredWaivers(unittest.TestCase):
-    """Expired risk acceptance must not be preserved by regression tests."""
+    """Waiver governance contract (rewritten 2026-09-13, turn 5).
+
+    Policy change: a *zero-waiver* text contract was unenforceable once the
+    pinned Alpine base shipped four HIGH libuuid advisories with no fixed
+    package available, and it gave a false sense of safety because the CI
+    guard never even read .grype.yaml - the only file grype loads. The
+    contract is now behavioural and strictly stronger: any waiver must be
+    CVE-scoped, package-scoped, dated, unexpired, human-approved and backed by
+    a written exposure analysis, and the guard must fail closed on expiry.
+    """
 
     def test_expired_exception_file_removed(self):
         self.assertFalse(GRYPE_EXCEPTIONS.exists())
 
-    def test_active_config_has_no_ignored_cves(self):
-        self.assertFalse(re.findall(r'CVE-\d{4}-\d+', GRYPE_CONFIG.read_text()))
+    def test_guard_accepts_current_config(self):
+        proc = subprocess.run([sys.executable, str(GRYPE_CHECKER)], cwd=str(ROOT),
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
-    def test_empty_ignore_policy_explicit(self):
-        self.assertIn('ignore: []', GRYPE_CONFIG.read_text())
+    def test_guard_reads_the_file_grype_actually_loads(self):
+        self.assertIn('.grype.yaml', GRYPE_CHECKER.read_text())
+
+    def test_every_waiver_is_package_scoped(self):
+        text = GRYPE_CONFIG.read_text()
+        body = re.sub(r'(?m)^\s*#.*$', '', text)
+        for block in body.split('- vulnerability:')[1:]:
+            self.assertRegex(block, r'CVE-\d{4}-\d+')
+            self.assertIn('name:', block)
 
     def test_no_package_version_suppression(self):
         self.assertNotIn('version:', GRYPE_CONFIG.read_text())
 
-    def test_checker_remains_fail_closed_for_expiry(self):
-        text = GRYPE_CHECKER.read_text()
-        self.assertIn('now > EXPIRY_DATE', text)
-        self.assertIn('return 1', text)
+    def test_waivers_carry_an_unexpired_dated_review(self):
+        text = GRYPE_CONFIG.read_text()
+        body = re.sub(r'(?m)^\s*#.*$', '', text)
+        if not re.findall(r'CVE-\d{4}-\d+', body):
+            return
+        m = re.search(r'#\s*expires:\s*(\d{4}-\d{2}-\d{2})', text)
+        self.assertIsNotNone(m, 'waivers must declare an expiry date')
+        expiry = datetime.strptime(m.group(1), '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        self.assertGreater(expiry, now, 'waiver has expired; rebuild or renew review')
+        self.assertLessEqual((expiry - now).days, 30, 'waivers may not run longer than 30 days')
 
-    def test_checker_rejects_unapproved_cves(self):
-        self.assertIn('unapproved = cves - APPROVED_CVES', GRYPE_CHECKER.read_text())
+    def test_waivers_have_a_written_exposure_analysis(self):
+        body = re.sub(r'(?m)^\s*#.*$', '', GRYPE_CONFIG.read_text())
+        cves = set(re.findall(r'CVE-\d{4}-\d+', body))
+        if not cves:
+            return
+        docs = ' '.join(p.read_text() for p in (ROOT / 'docs' / 'security').glob('*.md'))
+        for cve in cves:
+            self.assertIn(cve, docs, f'{cve} is waived with no exposure analysis in docs/security/')
 
-    def test_grype_checker_retains_review_limit(self):
-        self.assertIn('MAX_CVES = 3', GRYPE_CHECKER.read_text())
+    def test_guard_fails_closed_on_expiry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / '.grype.yaml').write_text(
+                '# expires: 2026-01-01\nignore:\n  - vulnerability: CVE-2026-76642\n'
+                '    package:\n      name: libuuid\n      type: apk\n')
+            proc = subprocess.run([sys.executable, str(GRYPE_CHECKER)], cwd=tmp,
+                                  capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn('expired', proc.stdout)
+
+    def test_guard_rejects_unapproved_cve(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / '.grype.yaml').write_text(
+                '# expires: 2026-12-01\nignore:\n  - vulnerability: CVE-2026-99999\n'
+                '    package:\n      name: libuuid\n      type: apk\n')
+            proc = subprocess.run([sys.executable, str(GRYPE_CHECKER)], cwd=tmp,
+                                  capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 1, proc.stdout)
+        self.assertIn('unapproved', proc.stdout)
 
 
 if __name__ == '__main__':

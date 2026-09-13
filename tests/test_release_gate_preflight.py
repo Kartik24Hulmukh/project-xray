@@ -1,4 +1,4 @@
-import ast,shutil,tempfile,unittest
+import ast,json,shutil,tempfile,unittest
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -10,7 +10,7 @@ TREE=ast.parse(SOURCE)
 def _load_preflight():
     for node in TREE.body:
         if isinstance(node,ast.FunctionDef) and node.name=='ui_gate_preflight':
-            namespace={'shutil':shutil,'Path':Path}
+            namespace={'shutil':shutil,'Path':Path,'json':json}
             exec(compile(ast.Module(body=[node],type_ignores=[]),str(SCRIPT),'exec'),namespace)
             return namespace['ui_gate_preflight']
     raise AssertionError('ui_gate_preflight is missing from scripts/check_release.py')
@@ -32,6 +32,7 @@ class ReleaseGatePreflightContract(unittest.TestCase):
     def test_missing_browser_dependencies_are_reported_actionably(self):
         preflight=_load_preflight()
         with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp)/'package.json').write_text(json.dumps({'dependencies':{'playwright':'^1.40.0'}}))
             problems=preflight(Path(tmp))
             self.assertTrue(problems,'a clone without node_modules must fail preflight, not crash inside node')
             self.assertTrue(any('npm ci' in p or 'node runtime' in p for p in problems),problems)
@@ -41,7 +42,20 @@ class ReleaseGatePreflightContract(unittest.TestCase):
             self.skipTest('node runtime not available in this environment')
         preflight=_load_preflight()
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp)/'node_modules'/'puppeteer').mkdir(parents=True)
+            (Path(tmp)/'package.json').write_text(json.dumps({'dependencies':{'playwright':'^1.40.0'}}))
+            (Path(tmp)/'node_modules'/'playwright').mkdir(parents=True)
+            self.assertEqual(preflight(Path(tmp)),[])
+
+    def test_required_packages_track_the_real_manifest(self):
+        if shutil.which('node') is None:
+            self.skipTest('node runtime not available in this environment')
+        declared=sorted(json.loads((ROOT/'package.json').read_text()).get('dependencies',{}))
+        self.assertTrue(declared,'package.json must declare the browser acceptance dependencies')
+        preflight=_load_preflight()
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp)/'package.json').write_text((ROOT/'package.json').read_text())
+            for name in declared:
+                (Path(tmp)/'node_modules'/name).mkdir(parents=True)
             self.assertEqual(preflight(Path(tmp)),[])
 
 

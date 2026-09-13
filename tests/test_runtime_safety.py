@@ -171,6 +171,7 @@ class TestFailSafeHTTP(unittest.TestCase):
 
     def tearDown(self):
         self.httpd.shutdown()
+        self.httpd.server_close()
         if self._prev_db is not None:
             os.environ['DB_PATH'] = self._prev_db
         else:

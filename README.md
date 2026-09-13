@@ -128,7 +128,13 @@ python3 scripts/smoke_e2e.py
 python3 scripts/stress_local.py  # disposable local synthetic database only
 ```
 
-`MAX_HTTP_WORKERS` defaults to 64. PostgreSQL connections are bounded by
+`MAX_HTTP_WORKERS` defaults to 64 and bounds *held* connections (memory and
+file descriptors). `HTTP_EXEC_PARALLELISM` (default 4) bounds how many admitted
+handlers *execute* at once; it is taken after headers are parsed, so slow
+clients cannot starve it. CPython threads contending for the GIL on SQLite-bound
+handlers collapse throughput ~8x when 64 are runnable at once, so keep this
+small: `2` on CPU-only SQLite nodes, `4` (default) when handlers do network I/O
+(managed-storage HEADs, alert webhooks). PostgreSQL connections are bounded by
 `DB_POOL_MAX` (default 10); admission waits up to 5 seconds before a retryable
 503. Global audit-chain writes are serialized for correctness, not advertised
 as unlimited write throughput. Ingress must enforce total request deadlines,

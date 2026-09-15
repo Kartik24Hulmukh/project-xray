@@ -24,13 +24,13 @@ class ReconcileTests(unittest.TestCase):
     def test_dry_run_default_does_not_delete(self):
         self.add('old')
         self.assertEqual(self.run_sweep()['eligible'], 1)
-        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM idempotency_keys').fetchone()[0], 1)
+        self.assertEqual(self.c.execute('SELECT COUNT(*) AS n FROM idempotency_keys').fetchone()['n'], 1)
 
     def test_only_old_processing_deleted(self):
         for key, age in [('old', 301), ('live', 299), ('boundary', 300), ('future', -1)]:
             self.add(key, age)
         self.assertEqual(self.run_sweep(dry_run=False)['reservations_reconciled'], 1)
-        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM idempotency_keys').fetchone()[0], 3)
+        self.assertEqual(self.c.execute('SELECT COUNT(*) AS n FROM idempotency_keys').fetchone()['n'], 3)
 
     def test_completed_default_kept_forever(self):
         self.add('receipt', 999999, 'completed', 999999)
@@ -40,7 +40,7 @@ class ReconcileTests(unittest.TestCase):
         self.add('fresh', 999999, 'completed', 1)
         self.add('expired', 999999, 'completed', 3601)
         self.assertEqual(self.run_sweep(dry_run=False, retention_seconds=3600)['receipts_expired'], 1)
-        self.assertEqual(self.c.execute('SELECT key FROM idempotency_keys').fetchone()[0], 'fresh')
+        self.assertEqual(self.c.execute('SELECT key FROM idempotency_keys').fetchone()['key'], 'fresh')
 
     def test_invalid_and_naive_timestamps_survive(self):
         for i, stamp in enumerate(['garbage', '2020-01-01T00:00:00']):
@@ -72,12 +72,12 @@ class ReconcileTests(unittest.TestCase):
                 return real.execute(query, params)
         result = reconcile(Rotating(), reference=NOW, dry_run=False)
         self.assertEqual(result['fence_lost'], 1)
-        self.assertEqual(real.execute('SELECT COUNT(*) FROM idempotency_keys').fetchone()[0], 1)
+        self.assertEqual(real.execute('SELECT COUNT(*) AS n FROM idempotency_keys').fetchone()['n'], 1)
 
     def test_caller_rollback_restores_deletion(self):
         self.add('old'); self.c.commit()
         self.run_sweep(dry_run=False); self.c.rollback()
-        self.assertEqual(self.c.execute('SELECT COUNT(*) FROM idempotency_keys').fetchone()[0], 1)
+        self.assertEqual(self.c.execute('SELECT COUNT(*) AS n FROM idempotency_keys').fetchone()['n'], 1)
 
     def test_fixed_clock_reproducible(self):
         self.add('old')

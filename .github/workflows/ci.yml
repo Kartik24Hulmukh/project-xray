@@ -95,7 +95,8 @@ jobs:
           connection.close()
           results = []
           for pattern in ('test_postgres_live.py', 'test_postgres_concurrency.py',
-                          'test_idempotency_recovery.py', 'test_postgres_fencing.py'):
+                          'test_idempotency_recovery.py', 'test_postgres_fencing.py',
+                          'test_postgres_reconcile.py'):
               run = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', pattern, '-v'],
                                    capture_output=True, text=True)
               text = run.stdout + run.stderr

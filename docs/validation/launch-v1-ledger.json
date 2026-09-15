@@ -1,0 +1,10 @@
+{
+  "scope": "local synthetic SQLite readiness helper, fixed IDs and clock, no network",
+  "events": 100000,
+  "verified_events": 100000,
+  "cold_ms": 697.866,
+  "warm_p50_ms": 2.545,
+  "warm_p95_ms": 3.102,
+  "warm_p99_ms": 3.941,
+  "note": "Full revalidation occurs on head movement or cache expiry; COUNT(*) is not O(1) on PostgreSQL."
+}

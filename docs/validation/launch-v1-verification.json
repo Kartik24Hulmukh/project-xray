@@ -1,0 +1,35 @@
+{
+  "python": "3.14.6",
+  "dependencies": {
+    "opentelemetry-sdk": "1.37.0",
+    "opentelemetry-exporter-otlp-proto-http": "1.37.0",
+    "psycopg2-binary": "2.9.13"
+  },
+  "logs": {
+    "baseline-tests.log": {
+      "sha256": "018f93b6eb41caa8391f78de335243e2b2bf0494bba7ffb07bdf2610939d8044",
+      "summary": [
+        "Ran 300 tests in 13.218s",
+        "OK (skipped=8)"
+      ]
+    },
+    "final-tests.log": {
+      "sha256": "474eb12192b81defc9867b6d5aa2cb79fa04472e5890a2429c5a17cd7dd052b9",
+      "summary": [
+        "Ran 326 tests in 13.678s",
+        "OK (skipped=18)"
+      ]
+    },
+    "release-final.log": {
+      "sha256": "a06143ad4d9adadf2275c03136bca0b58a7768b0b32f518bbe97c6fe6220e89d",
+      "summary": [
+        "Ran 326 tests in 13.468s",
+        "OK (skipped=18)"
+      ]
+    }
+  },
+  "release_checker": {
+    "exit_code": 0
+  },
+  "baseline_dependency_caveat": "Baseline and first stress predate installing pinned requirements; no causal performance speedup/regression claim."
+}

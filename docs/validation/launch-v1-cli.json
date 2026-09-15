@@ -1,0 +1,22 @@
+[
+  {
+    "args": [],
+    "exit_code": 0,
+    "rows_after": 1
+  },
+  {
+    "args": [
+      "--apply"
+    ],
+    "exit_code": 0,
+    "rows_after": 0
+  },
+  {
+    "args": [
+      "--batch",
+      "5001"
+    ],
+    "exit_code": 2,
+    "rows_after": 0
+  }
+]

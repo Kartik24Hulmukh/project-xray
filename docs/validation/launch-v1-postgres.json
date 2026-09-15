@@ -1,0 +1,27 @@
+{
+  "version": "PostgreSQL 16.14 on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 7.5.0-3ubuntu1~18.04) 7.5.0, 64-bit",
+  "scope": "embedded local binary; not target deployment",
+  "results": [
+    {
+      "suite": "test_postgres_live.py",
+      "exit_code": 0,
+      "output_tail": "_write_commit_roundtrip (test_postgres_live.TestPostgresLive.test_write_commit_roundtrip) ... ok\ntest_write_rollback_roundtrip (test_postgres_live.TestPostgresLive.test_write_rollback_roundtrip) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.014s\n\nOK\n"
+    },
+    {
+      "suite": "test_postgres_concurrency.py",
+      "exit_code": 0,
+      "output_tail": "test_concurrent_appends_preserve_single_chain (test_postgres_concurrency.PostgresConcurrency.test_concurrent_appends_preserve_single_chain) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.117s\n\nOK\n"
+    },
+    {
+      "suite": "test_postgres_fencing.py",
+      "exit_code": 0,
+      "output_tail": "r (test_postgres_fencing.TestPostgresFencing.test_reclaim_exactly_one_winner) ... ok\ntest_release_rejects_stale_lease (test_postgres_fencing.TestPostgresFencing.test_release_rejects_stale_lease) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.008s\n\nOK\n"
+    },
+    {
+      "suite": "test_postgres_reconcile.py",
+      "exit_code": 0,
+      "output_tail": "_is_fenced (test_postgres_reconcile.PostgresReconcileTests.test_rotated_snapshot_is_fenced) ... ok\ntest_strict_boundaries (test_postgres_reconcile.PostgresReconcileTests.test_strict_boundaries) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 0.081s\n\nOK\n",
+      "remediation_cycles": 1
+    }
+  ]
+}

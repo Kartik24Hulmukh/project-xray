@@ -1,0 +1,90 @@
+{
+  "scope": "local synthetic SQLite; rate limits raised for throughput; no external services",
+  "worker_limit": 64,
+  "exec_parallelism": "default",
+  "phases": [
+    {
+      "name": "baseline_reads",
+      "clients": 1,
+      "requests": 100,
+      "seconds": 0.149,
+      "requests_per_second": 671.42,
+      "p50_ms": 1.32,
+      "p95_ms": 2.49,
+      "p99_ms": 2.68,
+      "statuses": {
+        "200": 100
+      }
+    },
+    {
+      "name": "100_client_reads",
+      "clients": 100,
+      "requests": 2600,
+      "seconds": 3.033,
+      "requests_per_second": 857.2,
+      "p50_ms": 102.64,
+      "p95_ms": 191.81,
+      "p99_ms": 265.15,
+      "statuses": {
+        "200": 2600
+      }
+    },
+    {
+      "name": "100_client_writes",
+      "clients": 100,
+      "requests": 300,
+      "seconds": 0.675,
+      "requests_per_second": 444.17,
+      "p50_ms": 175.99,
+      "p95_ms": 204.73,
+      "p99_ms": 242.79,
+      "statuses": {
+        "201": 300
+      }
+    },
+    {
+      "name": "100_client_idempotency_race",
+      "clients": 100,
+      "requests": 100,
+      "seconds": 0.131,
+      "requests_per_second": 761.9,
+      "p50_ms": 48.29,
+      "p95_ms": 91.28,
+      "p99_ms": 92.33,
+      "statuses": {
+        "201": 75,
+        "409": 25
+      }
+    }
+  ],
+  "server_baseline_rss_kb": 31544,
+  "idempotency_unique_success_ids": 1,
+  "health_recovery": {
+    "status": 200,
+    "latency_ms": 0.75
+  },
+  "ready_recovery": {
+    "status": 200,
+    "latency_ms": 3.957
+  },
+  "readiness_after_load": 200,
+  "server_alive": true,
+  "tracebacks_in_log": 0,
+  "server_peak_rss_kb": 52852,
+  "server_threads": 1,
+  "integrity_check": "ok",
+  "audit": {
+    "events": 301,
+    "head": "4e7d38c43df55cb5c4ba07d321ce610fd658642af6e9a4f6f9abeab2e9bce64e"
+  },
+  "persisted_projects": 301,
+  "expected_projects": 301,
+  "safety_pass": true,
+  "launch_gates": {
+    "statuses_pass": true,
+    "ram_pass": true,
+    "recovery_pass": true,
+    "process_pass": true
+  },
+  "zero_rejection_capacity_pass": false
+}

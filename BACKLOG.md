@@ -37,6 +37,9 @@
 - [x] Harden request framing/logging; bound handler admission.
 - [x] Expand synthetic export/restart/restore smoke; add container CI contract.
 - [ ] Pass actual container CI and target-environment operational/editorial gates.
-- [ ] Reconcile abandoned idempotency reservations safely.
+- [x] Reconcile abandoned idempotency reservations safely (bounded dry-run-first CLI; SQLite + live PostgreSQL regressions; see docs/IDEMPOTENCY_MAINTENANCE.md).
 - [ ] Benchmark large-ledger readiness cost and sustained deployment load.
 See docs/HARDENING_2026_09.md for receipts and production no-go conditions.
+
+### Launch-v1 measured blocker
+100,000-event signed SQLite ledger: cold readiness audit verification 697.866 ms; warm helper P99 3.941 ms. Full chain revalidation remains synchronous and materializes checkpoints. This is not a 100x target-deployment certification; sustained deployment load and large-ledger memory ceilings remain open. See docs/validation/launch-v1-ledger.json.

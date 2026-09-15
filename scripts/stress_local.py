@@ -141,7 +141,16 @@ def main():
                 and results['persisted_projects'] == results['expected_projects'])
             results['launch_gates'] = launch_gates(results)
             results['safety_pass'] = results['safety_pass'] and all(results['launch_gates'].values())
-            results['zero_rejection_capacity_pass'] = all(set(p['statuses']) <= {'200','201'} for p in results['phases'])
+            # Capacity gate fails only on genuine capacity rejections (429/503/5xx).
+            # A single 409 in the idempotency-race phase is the fenced-idempotency
+            # contract correctly refusing a duplicate claim, not a capacity failure;
+            # safety_pass still requires exactly one unique successful id there.
+            def _capacity_ok(p):
+                allowed = {'200', '201'}
+                if p['name'] == '100_client_idempotency_race':
+                    allowed = allowed | {'409'}
+                return set(p['statuses']) <= allowed
+            results['zero_rejection_capacity_pass'] = all(_capacity_ok(p) for p in results['phases'])
         finally:
             proc.terminate()
             try:

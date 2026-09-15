@@ -146,6 +146,51 @@ class TestReadyzAuditCache(unittest.TestCase):
             head = self.server.verify_audit_head(c, self.server.AUDIT_KEY)
         self.assertEqual(full, head)
 
+    def test_waiters_never_pay_strict_cardinality_scan(self):
+        """Regression (launch-week finding A): coalesced /readyz waiters must join
+        on the O(1) signed head checkpoint. Only the single-flight scanner may run
+        the strict O(n) COUNT(*), and it may do so at most once per verification it
+        starts; otherwise a cold-start probe storm starves the scanner."""
+        import time
+        s = self.server
+        orig_head = s.verify_audit_head
+        orig_segment = s.verify_audit_segment
+        counts = {'strict': 0, 'peek': 0, 'started': 0}
+        lock = threading.Lock()
+
+        def counting_head(c, key, strict_count=True):
+            with lock:
+                counts['strict' if strict_count else 'peek'] += 1
+            return orig_head(c, key, strict_count=strict_count)
+
+        def slow_segment(c, key, start_id, previous, limit, count_offset):
+            if start_id == 0:
+                with lock:
+                    counts['started'] += 1
+            time.sleep(0.02)  # keep the scanner busy so probes must coalesce
+            return orig_segment(c, key, start_id, previous, limit, count_offset)
+
+        s.verify_audit_head = counting_head
+        s.verify_audit_segment = slow_segment
+        s.reset_readiness_verifier()
+        try:
+            results = []
+            def probe():
+                results.append(self._get('/readyz')[0])
+            threads = [threading.Thread(target=probe) for _ in range(24)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            s.verify_audit_head = orig_head
+            s.verify_audit_segment = orig_segment
+        self.assertTrue(set(results) <= {200, 503}, results)
+        self.assertGreaterEqual(counts['peek'], 24)
+        # Strict COUNT(*) bounded by scanner runs, never by the number of probes.
+        self.assertLessEqual(counts['strict'], max(counts['started'], 1))
+        self.assertLess(counts['strict'], 24)
+
 
 if __name__ == '__main__':
     unittest.main()

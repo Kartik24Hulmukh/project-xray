@@ -19,6 +19,21 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 
+def launch_gates(results):
+    """Fail closed: old safety_pass permitted 503 and ignored resource ceilings."""
+    allowed = {'baseline_reads': {'200'}, '100_client_reads': {'200'},
+               '100_client_writes': {'201'}, '100_client_idempotency_race': {'201', '409'}}
+    capacity = len(results['phases']) == 4 and all(
+        p['name'] in allowed and set(p['statuses']) <= allowed[p['name']]
+        and sum(p['statuses'].values()) == p['requests'] for p in results['phases'])
+    rss = results.get('server_peak_rss_kb')
+    return dict(statuses_pass=capacity,
+                ram_pass=isinstance(rss, int) and 0 < rss <= 128 * 1024,
+                recovery_pass=all(results.get(k, {}).get('status') == 200
+                    and 0 <= results[k]['latency_ms'] < 200 for k in ('health_recovery', 'ready_recovery')),
+                process_pass=results.get('server_alive') is True and results.get('tracebacks_in_log') == 0)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', default='artifacts/hardening/stress.json')
@@ -84,6 +99,8 @@ def main():
                 time.sleep(.1)
             else:
                 raise RuntimeError('server readiness timeout')
+            status = Path(f'/proc/{proc.pid}/status').read_text()
+            results['server_baseline_rss_kb'] = int(next(l for l in status.splitlines() if l.startswith('VmRSS:')).split()[1])
             phase('baseline_reads', 1, 100, lambda _: request('/api/projects'))
             phase('100_client_reads', 100, args.requests, lambda _: request('/api/projects'))
             writes = phase('100_client_writes', 100, 300, lambda i: request('/api/projects',
@@ -94,7 +111,13 @@ def main():
                             lambda _: request('/api/projects', idem_body, 'same-key'))
             successful_ids = {json.loads(raw)['id'] for code, _, raw in replays if code == 201}
             results['idempotency_unique_success_ids'] = len(successful_ids)
-            results['readiness_after_load'] = request('/ready')[0]
+            for key, path in [('health_recovery', '/healthz'), ('ready_recovery', '/readyz')]:
+                code, elapsed, _ = request(path)
+                results[key] = {'status': code, 'latency_ms': round(elapsed * 1000, 3)}
+            results['readiness_after_load'] = results['ready_recovery']['status']
+            results['server_alive'] = proc.poll() is None
+            log.flush()
+            results['tracebacks_in_log'] = (Path(directory)/'server.log').read_text().count('Traceback (most recent call last)')
             try:  # peak resident memory of the server process (Linux only)
                 status = Path(f'/proc/{proc.pid}/status').read_text()
                 results['server_peak_rss_kb'] = int(next(l for l in status.splitlines() if l.startswith('VmHWM:')).split()[1])
@@ -116,6 +139,8 @@ def main():
             results['safety_pass'] = (not unexpected and len(successful_ids) == 1
                 and results['readiness_after_load'] == 200 and results['integrity_check'] == 'ok'
                 and results['persisted_projects'] == results['expected_projects'])
+            results['launch_gates'] = launch_gates(results)
+            results['safety_pass'] = results['safety_pass'] and all(results['launch_gates'].values())
             results['zero_rejection_capacity_pass'] = all(set(p['statuses']) <= {'200','201'} for p in results['phases'])
         finally:
             proc.terminate()

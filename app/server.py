@@ -950,7 +950,8 @@ class H(BaseHTTPRequestHandler):
             return
 
         if self.limited('GET', path):
-            return self.out({'error': 'rate limit exceeded'}, 429)
+            return self.out({'error': 'rate limit exceeded'}, 429,
+                            extra_headers={'Retry-After': str(max(1, 60 - int(time.time()) % 60))})
 
         if path in LIVENESS_PATHS:
             return self.out({'status': 'ok', 'time': now(), 'version': '0.4.6'})
@@ -1132,7 +1133,8 @@ class H(BaseHTTPRequestHandler):
         _metric_inc('writes')
 
         if self.limited('POST', path):
-            return self.out({'error': 'rate limit exceeded'}, 429)
+            return self.out({'error': 'rate limit exceeded'}, 429,
+                            extra_headers={'Retry-After': str(max(1, 60 - int(time.time()) % 60))})
 
         principal = self.principal(('admin', 'reviewer', 'scanner'))
         if not principal:

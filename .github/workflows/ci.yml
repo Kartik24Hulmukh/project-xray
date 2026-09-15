@@ -52,6 +52,10 @@ jobs:
         run: python3 scripts/smoke_e2e.py
       - name: Release checks
         run: python3 scripts/check_release.py
+      - name: Fetch tags for release-claim audit
+        run: git fetch --tags --force
+      - name: Release-claim guard (no unsupported production/GA claim)
+        run: python3 scripts/check_release_claims.py --json
 
   postgres:
     name: postgres

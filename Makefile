@@ -6,6 +6,10 @@ test:
 
 check:
 	python3 scripts/check_release.py
+	python3 scripts/check_release_claims.py
+
+claims:
+	python3 scripts/check_release_claims.py --json
 
 smoke:
 	python3 scripts/smoke_e2e.py

@@ -7,6 +7,7 @@ import math
 import os
 import re
 import secrets
+import signal
 import time
 import threading
 import uuid
@@ -1580,9 +1581,22 @@ def _bound_execution(method):
         gate = getattr(server, '_exec', None)
         observer = getattr(server, 'telemetry', None)
         # Include execution admission wait, but never hold execution for slow headers.
-        with observer.request(self) if observer else nullcontext():
-            with gate if gate is not None else nullcontext():
-                return method(self, *args, **kwargs)
+        started = getattr(server, 'request_started', None)
+        if started is not None:
+            started()
+        try:
+            with observer.request(self) if observer else nullcontext():
+                with gate if gate is not None else nullcontext():
+                    if getattr(server, 'draining', False):
+                        # Shed cleanly during drain: tell the client to stop
+                        # reusing this connection so the pool rotates to a
+                        # healthy replica instead of racing the close.
+                        self.close_connection = True
+                    return method(self, *args, **kwargs)
+        finally:
+            finished = getattr(server, 'request_finished', None)
+            if finished is not None:
+                finished()
     return wrapper
 
 
@@ -1619,6 +1633,11 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         self.exec_parallelism = min(exec_parallelism, workers)
         self._slots = threading.BoundedSemaphore(workers)
         self._exec = threading.BoundedSemaphore(self.exec_parallelism)
+        self._inflight = 0
+        self._inflight_lock = threading.Lock()
+        self._idle = threading.Event()
+        self._idle.set()
+        self.draining = False
         super().__init__(address, handler)
         try:
             self.telemetry = telemetry.configured()
@@ -1648,8 +1667,103 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         finally:
             self._slots.release()
 
+    def request_started(self):
+        """Mark a handler as executing a request (not merely holding a socket).
+
+        Drain must wait for *requests*, never for idle keep-alive connections:
+        counting connection threads made an idle keep-alive client stall the
+        drain for the whole XRAY_DRAIN_SECONDS bound (caught by regression test).
+        """
+        with self._inflight_lock:
+            self._inflight += 1
+            self._idle.clear()
+
+    def request_finished(self):
+        with self._inflight_lock:
+            self._inflight -= 1
+            if self._inflight <= 0:
+                self._idle.set()
+
+    def inflight(self):
+        """Number of handler threads currently executing a request."""
+        with self._inflight_lock:
+            return self._inflight
+
+    def drain(self, timeout=None):
+        """Bounded graceful shutdown: stop accepting, let in-flight finish, close.
+
+        Root cause this closes: ``serve_forever()`` under the default SIGTERM
+        disposition died instantly (rc=-15), aborting in-flight SQLite
+        transactions mid-commit and dropping queued OTLP spans. Order matters:
+        (1) stop the accept loop so no new work is admitted, (2) wait up to
+        ``XRAY_DRAIN_SECONDS`` for admitted handlers to complete, (3) close the
+        listener and flush telemetry. Returns True if the drain completed
+        before the deadline, False if it timed out (the bound is the point:
+        a restart must never hang forever).
+        """
+        if timeout is None:
+            timeout = float(os.getenv('XRAY_DRAIN_SECONDS', '15'))
+        timeout = max(0.0, timeout)
+        self.draining = True
+        try:
+            self.shutdown()  # idempotent; stops the accept loop only
+        except Exception:
+            pass
+        deadline = time.monotonic() + timeout
+        while self.inflight() > 0 and time.monotonic() < deadline:
+            self._idle.wait(0.02)
+        completed = self.inflight() == 0
+        try:
+            self.server_close()  # also flushes/stops the bounded OTLP exporter
+        except Exception:
+            pass
+        print(json.dumps({'event': 'shutdown', 'service': 'project-xray',
+                          'drained': completed, 'timeout_seconds': timeout}), flush=True)
+        return completed
+
+
+def install_drain_handlers(server, signals=(signal.SIGTERM, signal.SIGINT)):
+    """Install bounded-drain signal handlers *before* announcing startup.
+
+    The stopper runs on a non-daemon thread: the signal arrives on the main
+    thread while it is parked in ``serve_forever()``, and ``shutdown()`` may not
+    be called from that same thread (it would deadlock). Non-daemon means the
+    interpreter waits for the drain to finish instead of exiting underneath it.
+    """
+    state = {'stopper': None}
+
+    def _on_signal(signum, _frame):
+        if state['stopper'] is not None:
+            return  # second signal: already draining, stay idempotent
+        stopper = threading.Thread(target=server.drain, name='xray-drain', daemon=False)
+        state['stopper'] = stopper
+        stopper.start()
+
+    for sig in signals:
+        try:
+            signal.signal(sig, _on_signal)
+        except (ValueError, OSError):  # non-main thread / unsupported platform
+            pass
+    return state
+
+
+def main():
+    init()
+    server = BoundedHTTPServer((os.getenv('BIND_HOST', '127.0.0.1'), PORT), H)
+    state = install_drain_handlers(server)
+    print(json.dumps({'event': 'startup', 'service': 'project-xray', 'version': '0.4.6',
+                      'port': PORT, 'environment': ENV,
+                      'drain_seconds': float(os.getenv('XRAY_DRAIN_SECONDS', '15'))}), flush=True)
+    try:
+        server.serve_forever()
+    finally:
+        stopper = state['stopper']
+        if stopper is not None:
+            stopper.join()
+        else:
+            server.drain()
+    return 0
+
 
 if __name__ == '__main__':
-    init()
-    print(json.dumps({'event': 'startup', 'service': 'project-xray', 'version': '0.4.6', 'port': PORT, 'environment': ENV}))
-    BoundedHTTPServer((os.getenv('BIND_HOST', '127.0.0.1'), PORT), H).serve_forever()
+    raise SystemExit(main())

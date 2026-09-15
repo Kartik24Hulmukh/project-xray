@@ -28,7 +28,10 @@ class Telemetry:
         if exporter is None:
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
             exporter = OTLPSpanExporter(timeout=2)
-        self.provider = TracerProvider(resource=Resource.create({'service.name': 'project-xray'}),
+        # The HTTP server owns bounded shutdown. An SDK atexit join would
+        # otherwise bypass that deadline during collector failure.
+        self.provider = TracerProvider(shutdown_on_exit=False,
+                                       resource=Resource.create({'service.name': 'project-xray'}),
                                        sampler=ParentBased(TraceIdRatioBased(ratio)))
         # A failed collector drops spans rather than consuming unbounded memory.
         self.provider.add_span_processor(BatchSpanProcessor(exporter, max_queue_size=2048,

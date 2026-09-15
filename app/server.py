@@ -9,6 +9,9 @@ import re
 import secrets
 import time
 import threading
+import signal
+import socket
+import math
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
@@ -954,6 +957,9 @@ class H(BaseHTTPRequestHandler):
         if path in LIVENESS_PATHS:
             return self.out({'status': 'ok', 'time': now(), 'version': '0.4.6'})
         if path in READINESS_PATHS:
+            draining = getattr(self.server, '_draining', None)
+            if draining is not None and draining.is_set():
+                return self.out({'status': 'not_ready', 'ready': False}, 503)
             if not capability_policy.valid or capability_policy.maintenance:
                 return self.out(
                     {
@@ -1615,6 +1621,10 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         # *runnable* at once. With 64 runnable CPython threads contending for
         # the GIL on SQLite-bound handlers, throughput collapsed ~8x under 100
         # clients (GIL convoy). Handlers wait here instead of thrashing.
+        self._draining = threading.Event()
+        self._active = threading.Condition()
+        self._requests = set()
+        self._closed = False
         self.max_workers = workers
         self.exec_parallelism = min(exec_parallelism, workers)
         self._slots = threading.BoundedSemaphore(workers)
@@ -1626,19 +1636,76 @@ class BoundedHTTPServer(ThreadingHTTPServer):
             super().server_close()
             raise
 
-    def server_close(self):
+    def begin_shutdown(self):
+        """Stop admission first; never call BaseServer.shutdown on its own loop."""
+        if not self._draining.is_set():
+            self._draining.set()
+            threading.Thread(target=self.shutdown, daemon=True,
+                             name='xray-stop-accept').start()
+
+    def server_close(self, drain_timeout=10.0):
+        """Bound cleanup; preserve admitted work, then interrupt held sockets.
+
+        Python cannot kill a blocked worker. At the deadline any unfinished work
+        is reported, not claimed successful. The orchestrator owns the hard kill.
+        """
+        if not math.isfinite(drain_timeout) or drain_timeout < 0:
+            raise ValueError('drain_timeout must be finite and nonnegative')
+        if self._closed:
+            return
+        self._closed = True
+        self._draining.set()
         super().server_close()
+        deadline = time.monotonic() + drain_timeout
+        with self._active:
+            while self._requests:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._active.wait(remaining)
+            abandoned = list(self._requests)
+        for request in abandoned:
+            try:
+                request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
         observer = getattr(self, "telemetry", None)
+        flushed = True
         if observer is not None:
-            observer.shutdown()
+            # Collector outages must not make process shutdown unbounded.
+            finished = threading.Event()
+            def flush():
+                try:
+                    observer.shutdown()
+                finally:
+                    finished.set()
+            threading.Thread(target=flush, daemon=True,
+                             name='xray-stop-telemetry').start()
+            flushed = finished.wait(max(0, deadline - time.monotonic()))
+        return {'event': 'shutdown', 'unfinished_requests': len(abandoned),
+                'telemetry_shutdown_finished': flushed}
 
     def process_request(self, request, client_address):
-        # Backpressure the accept loop instead of closing sockets with unread
-        # POST bodies (which causes TCP resets rather than usable 503 replies).
-        self._slots.acquire()
+        # Poll a bounded semaphore only while live: saturation must not trap
+        # serve_forever forever when a termination request arrives.
+        while not self._draining.is_set():
+            if self._slots.acquire(timeout=0.05):
+                break
+        else:
+            self.shutdown_request(request)
+            return
+        with self._active:
+            if self._draining.is_set():
+                self._slots.release()
+                self.shutdown_request(request)
+                return
+            self._requests.add(request)
         try:
             super().process_request(request, client_address)
         except BaseException:
+            with self._active:
+                self._requests.discard(request)
+                self._active.notify_all()
             self._slots.release()
             raise
 
@@ -1646,10 +1713,26 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         try:
             super().process_request_thread(request, client_address)
         finally:
+            with self._active:
+                self._requests.discard(request)
+                self._active.notify_all()
             self._slots.release()
 
 
-if __name__ == '__main__':
+def main():
     init()
+    server = BoundedHTTPServer((os.getenv('BIND_HOST', '127.0.0.1'), PORT), H)
+    previous = {}
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        previous[sig] = signal.signal(sig, lambda *_: server.begin_shutdown())
     print(json.dumps({'event': 'startup', 'service': 'project-xray', 'version': '0.4.6', 'port': PORT, 'environment': ENV}))
-    BoundedHTTPServer((os.getenv('BIND_HOST', '127.0.0.1'), PORT), H).serve_forever()
+    try:
+        server.serve_forever(poll_interval=0.1)
+    finally:
+        print(json.dumps(server.server_close()))
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+if __name__ == '__main__':
+    main()

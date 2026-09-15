@@ -82,3 +82,27 @@ class ReconcileTests(unittest.TestCase):
     def test_fixed_clock_reproducible(self):
         self.add('old')
         self.assertEqual(self.run_sweep(), self.run_sweep())
+
+
+class ReconcileCLIValidation(unittest.TestCase):
+    def test_invalid_environment_fails_without_traceback(self):
+        import os
+        from pathlib import Path
+        import subprocess
+        import sys
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run([sys.executable, 'scripts/reconcile_idempotency.py'], cwd=root,
+            env={**os.environ, 'IDEMPOTENCY_STUCK_SECONDS': 'not-a-number'}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn('Traceback', result.stderr)
+
+    def test_cli_refuses_shorter_than_server_lease(self):
+        import os
+        from pathlib import Path
+        import subprocess
+        import sys
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run([sys.executable, 'scripts/reconcile_idempotency.py', '--stuck-seconds', '30'], cwd=root,
+            env={**os.environ, 'IDEMPOTENCY_STUCK_SECONDS': '300'}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('below server lease timeout', result.stderr)

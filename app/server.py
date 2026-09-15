@@ -506,6 +506,39 @@ def response_public_view(row):
     }
 
 
+CSV_FORMULA_PREFIXES = ('=', '+', '-', '@', '\t', '\r')
+
+
+def csv_cell(value):
+    """Neutralise spreadsheet formula injection (CWE-1236) and normalise cells."""
+    if value is None:
+        return ''
+    text = str(value)
+    if text.startswith(CSV_FORMULA_PREFIXES):
+        text = "'" + text
+    return text
+
+
+def dossier_csv(dossier):
+    import csv
+    import io
+    project = dossier['project']
+    label = 'SYNTHETIC' if project['synthetic'] else 'REVIEWED'
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator='\r\n')
+    w.writerow(['record_kind', 'data_label', 'project_id', 'project_title', 'authority', 'claim_type', 'publication_state',
+                'text', 'source_url', 'retrieved_at', 'source_sha256', 'anchor', 'generated_at'])
+    generated = now()
+    for claim in dossier['claims']:
+        w.writerow([csv_cell(x) for x in ('claim', label, project['id'], project['title'], project['authority'], claim['claim_type'],
+                    claim['publication_state'], claim['text'], claim['source_url'], claim['retrieved_at'], claim['source_sha256'],
+                    claim['page_ref'] or claim['passage'], generated)])
+    for gap in dossier['gaps']:
+        w.writerow([csv_cell(x) for x in ('record_not_located', label, project['id'], project['title'], project['authority'], '', '',
+                    gap['document_name'], '', gap['searched_at'], '', gap['search_scope'], generated)])
+    return buf.getvalue()
+
+
 def bundle(pid, private=False):
     with db() as c:
         project = c.execute('SELECT * FROM projects WHERE id=?', (pid,)).fetchone()
@@ -792,8 +825,8 @@ class H(BaseHTTPRequestHandler):
         )
         return None
 
-    def text(self, value, code=200, ctype='text/plain; charset=utf-8'):
-        self.common(code, ctype)
+    def text(self, value, code=200, ctype='text/plain; charset=utf-8', extra_headers=None):
+        self.common(code, ctype, extra_headers)
         self.wfile.write(value.encode())
 
     def body(self):
@@ -1162,6 +1195,12 @@ class H(BaseHTTPRequestHandler):
                 return self.out({'error': 'not found'}, 404)
             if len(segments) == 3:
                 return self.out(dossier)
+            if len(segments) == 4 and segments[3] == 'claims.csv':
+                return self.text(
+                    dossier_csv(dossier),
+                    ctype='text/csv; charset=utf-8',
+                    extra_headers={'Content-Disposition': f'attachment; filename="{segments[2]}-claims.csv"'},
+                )
             if len(segments) == 4 and segments[3] == 'report':
                 project = dossier['project']
                 lines = [

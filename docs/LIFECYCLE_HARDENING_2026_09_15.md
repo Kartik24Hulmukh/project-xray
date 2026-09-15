@@ -66,3 +66,9 @@ End-to-end local smoke passes create/review/publish/export, restart, capsule/aud
 One lifecycle implementation cycle, followed by bounded review refinements (SDK atexit, readiness) and green reruns; fewer than five fixes for this subsystem. No speculative rewrite of the data model or concurrency defaults. Performance tuning and target deployment are explicit checkpoints, not hidden successes.
 
 Raw receipts: `docs/validation/lifecycle-2026-09-15/`. Reproduce using a fresh venv, requirements installation, `PYTHONHASHSEED=0 python -m unittest discover -s tests -v`, `python scripts/stress_local.py`, `python scripts/fault_injection.py --seed 20260913`, `python scripts/soak_local.py --seconds 120`, `python scripts/smoke_e2e.py` and `CHROMIUM_PATH=/usr/bin/chromium python scripts/check_release.py`. Write tests are local-only or disposable CI databases; never point them at production.
+
+## Final-code verification addendum
+
+After readiness and SDK-atexit refinements, isolated-venv verification again passed: 300 tests run, 292 passed and 8 PostgreSQL skips; release checker exit zero (including browser acceptance). Final-code 100-client sample: read P50/P95/P99 104.57/191.54/249.96ms, 888.24 req/s; writes 173.11/193.25/222.89ms, 522.93 req/s; replay 53.47/105.67/109.23ms, 721.05 req/s. RSS high-water 58,768 KiB. Safety and audit integrity passed; intentional replay 409 remains. Preserve both after-samples; do not cherry-pick the faster one. Additional 30-second final-code soak receipt is retained separately.
+
+The 121-second soak RSS ranged 51,892–61,384 KiB (HWM 64,892 KiB), so the attachment's blanket “stable below 50 MB” claim is not supported on this machine. There is no proof of a memory leak from this short window, and no proof of leak absence either.

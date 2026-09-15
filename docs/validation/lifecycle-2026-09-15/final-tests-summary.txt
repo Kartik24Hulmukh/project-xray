@@ -1,0 +1,3 @@
+Ran 300 tests in 10.326s
+OK (skipped=8)
+Release checker: exit 0 (includes browser acceptance, rehearsal and security contracts).

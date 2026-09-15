@@ -1,0 +1,15 @@
+test_sigterm_cli_exits_cleanly_and_emits_receipt (test_shutdown.ShutdownTests.test_sigterm_cli_exits_cleanly_and_emits_receipt) ... FAIL
+
+======================================================================
+FAIL: test_sigterm_cli_exits_cleanly_and_emits_receipt (test_shutdown.ShutdownTests.test_sigterm_cli_exits_cleanly_and_emits_receipt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/daytona/project-xray/tests/test_shutdown.py", line 142, in test_sigterm_cli_exits_cleanly_and_emits_receipt
+    self.assertEqual(process.returncode, 0, stderr)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: -15 != 0 : 
+
+----------------------------------------------------------------------
+Ran 1 test in 0.127s
+
+FAILED (failures=1)

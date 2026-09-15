@@ -1,0 +1,10 @@
+test_admitted_response_drains_before_exporter (test_shutdown.ShutdownTests.test_admitted_response_drains_before_exporter) ... ok
+test_exporter_outage_has_bounded_cleanup (test_shutdown.ShutdownTests.test_exporter_outage_has_bounded_cleanup) ... ok
+test_invalid_deadline_rejected (test_shutdown.ShutdownTests.test_invalid_deadline_rejected) ... ok
+test_saturated_admission_does_not_deadlock_shutdown (test_shutdown.ShutdownTests.test_saturated_admission_does_not_deadlock_shutdown) ... ok
+test_sigterm_cli_exits_cleanly_and_emits_receipt (test_shutdown.ShutdownTests.test_sigterm_cli_exits_cleanly_and_emits_receipt) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 1.042s
+
+OK

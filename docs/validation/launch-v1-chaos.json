@@ -6,8 +6,8 @@
    "statuses": {
     "200": 200
    },
-   "p50_ms": 12.51,
-   "p95_ms": 47.96,
+   "p50_ms": 13.09,
+   "p95_ms": 34.72,
    "served_while_held": true
   },
   "after_30_mid_body_drops": {
@@ -18,8 +18,8 @@
   },
   "out_of_order_idempotent_replay": {
    "statuses": {
-    "201": 49,
-    "409": 1
+    "409": 5,
+    "201": 45
    },
    "unique_ids": 1
   }

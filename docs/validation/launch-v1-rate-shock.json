@@ -8,12 +8,12 @@
     {
       "status": 200,
       "retry_after": null,
-      "latency_ms": 0.6042942404747009
+      "latency_ms": 0.6695091724395752
     },
     {
       "status": 200,
       "retry_after": null,
-      "latency_ms": 1.3594329357147217
+      "latency_ms": 1.4162138104438782
     }
   ],
   "tracebacks": 0,

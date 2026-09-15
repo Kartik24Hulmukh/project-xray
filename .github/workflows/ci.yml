@@ -35,6 +35,17 @@ jobs:
         run: python3 scripts/rehearse_production.py
       - name: Local synthetic load regression
         run: python3 scripts/stress_local.py
+      - name: Same-process synthetic soak and shutdown receipt
+        env:
+          PYTHONHASHSEED: '0'
+        run: python3 scripts/soak_local.py --seconds 30
+      - name: Retain load and lifecycle receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sqlite-load-lifecycle
+          path: artifacts/hardening/
+          if-no-files-found: error
       - name: Synthetic smoke
         run: python3 scripts/smoke_e2e.py
       - name: Release checks

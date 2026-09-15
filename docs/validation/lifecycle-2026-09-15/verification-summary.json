@@ -1,0 +1,20 @@
+{
+  "baseline_sha": "59f5af7cbf14537b15b41275ddc53103c5954487",
+  "tests": {
+    "run": 300,
+    "passed": 292,
+    "skipped": 8,
+    "failures": 0,
+    "skip_reason": "PostgreSQL requires disposable DB; await CI"
+  },
+  "soak": {
+    "requests": 109000,
+    "seconds": 121,
+    "scope": "read-only smoke soak, not leak proof",
+    "rss_kib_min": 51892,
+    "rss_kib_max": 61384,
+    "peak_rss_kib": 64892
+  },
+  "production_certified": false,
+  "merge_pending": true
+}

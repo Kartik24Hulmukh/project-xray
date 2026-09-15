@@ -94,6 +94,33 @@ jobs:
           cur.close(); conn.close()
           print('schema applied')
           PY
+      - name: Isolated authenticated PostgreSQL recovery regression
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, sys
+          from pathlib import Path
+          from urllib.parse import urlsplit, urlunsplit
+          import psycopg2
+          parts = urlsplit(os.environ['DATABASE_URL'])
+          admin = psycopg2.connect(os.environ['DATABASE_URL'])
+          admin.autocommit = True
+          with admin.cursor() as cur:
+              cur.execute('CREATE DATABASE xray_backup_source')
+              cur.execute('CREATE DATABASE xray_restore_target')
+          admin.close()
+          source = urlunsplit(parts._replace(path='/xray_backup_source'))
+          target = urlunsplit(parts._replace(path='/xray_restore_target'))
+          conn = psycopg2.connect(source)
+          with conn.cursor() as cur:
+              cur.execute(Path('db/schema_postgres.sql').read_text())
+              cur.execute("INSERT INTO projects VALUES ('prj_aaaaaaaaaaaaaaaa','SYNTHETIC recovery fixture','Authority','','','research',1,'t','t')")
+          conn.commit(); conn.close()
+          env = dict(os.environ, XRAY_RECOVERY_TEST_SOURCE_URL=source,
+                     XRAY_RECOVERY_TEST_TARGET_URL=target)
+          result = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests',
+                                   '-p', 'test_postgres_recovery_live.py', '-v'], env=env)
+          sys.exit(result.returncode)
+          PY
       - name: Live PostgreSQL tests and retained receipt
         run: |
           mkdir -p artifacts/postgres

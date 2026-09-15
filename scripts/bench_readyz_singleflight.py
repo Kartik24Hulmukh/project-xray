@@ -132,13 +132,23 @@ def main():
     rss_peak = rss_mib()
 
     scanned = after['readyz_verify_events_scanned'] - before['readyz_verify_events_scanned']
-    steady_conn = conn(path)
     steady = []
-    for _ in range(200):
-        t = time.monotonic()
-        server.readiness_verify_audit(steady_conn, budget_ms=args.budget_ms)
-        steady.append((time.monotonic() - t) * 1000.0)
-    steady_conn.close()
+    # A finite cold loop may exhaust its probes before convergence. Preserve a
+    # failing JSON receipt instead of crashing during an assumed steady state.
+    if ready_flag.is_set():
+        steady_conn = conn(path)
+        try:
+            for _ in range(200):
+                t = time.monotonic()
+                try:
+                    server.readiness_verify_audit(steady_conn, budget_ms=args.budget_ms)
+                except Exception as exc:
+                    errors.append('steady: ' + repr(exc))
+                    break
+                steady.append((time.monotonic() - t) * 1000.0)
+        finally:
+            steady_conn.close()
+
 
     report = {
         'events': args.events,
@@ -154,8 +164,9 @@ def main():
         'cold_probe_max_ms': round(max(latencies), 3) if latencies else 0.0,
         'cold_probes': len(latencies),
         'convergence_wall_ms': wall_ms,
-        'steady_probe_p50_ms': pct(steady, 0.50),
-        'steady_probe_p99_ms': pct(steady, 0.99),
+        'steady_samples': len(steady),
+        'steady_probe_p50_ms': pct(steady, 0.50) if steady else None,
+        'steady_probe_p99_ms': pct(steady, 0.99) if steady else None,
         'events_scanned_total': scanned,
         'duplicate_scan_ratio': round(scanned / float(args.events), 3),
         'coalesced_probes': after['readyz_verify_coalesced'] - before['readyz_verify_coalesced'],
@@ -171,6 +182,7 @@ def main():
     report['pass'] = bool(
         not errors
         and report['ready_reached']
+        and report['steady_samples'] == 200
         and report['cold_probe_max_ms'] < 200.0
         and report['steady_probe_p99_ms'] < 200.0
         and report['duplicate_scan_ratio'] <= 1.5

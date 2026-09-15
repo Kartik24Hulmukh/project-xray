@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """Produce a signed recovery-drill evidence document.
 
-Works for SQLite file paths by default. When DATABASE_URL is set, backup/restore
-are delegated to the PostgreSQL path in scripts/recovery.py (requires pg_dump /
-pg_restore). The latest audit timestamp is read through the shared database
-abstraction when possible.
+Automatic collection is SQLite-only. PostgreSQL operators must explicitly
+restore to an isolated target with recovery.py; a drill must never overwrite
+the source DATABASE_URL. A fresh roundtrip does not measure disaster RPO.
 """
 import argparse
 import json
 import os
-import sqlite3
 import sys
 import tempfile
 import time
@@ -21,25 +19,18 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.recovery import backup, restore
 from app.manifest import sign
-from app.database import IS_POSTGRES, connect
-
-
-def _latest_audit_ts(database: Path):
-    if IS_POSTGRES:
-        c = connect()
-        try:
-            row = c.execute("SELECT max(created_at) AS m FROM audit_events").fetchone()
-            return row["m"] if row else None
-        finally:
-            c.close()
-    source = sqlite3.connect(database)
-    try:
-        return source.execute("SELECT max(created_at) FROM audit_events").fetchone()[0]
-    finally:
-        source.close()
+from app.database import IS_POSTGRES
 
 
 def collect(database, output, rpo_target_seconds=3600, rto_target_seconds=900, backup_key=None, audit_key=None):
+    if IS_POSTGRES:
+        raise RuntimeError(
+            'Automatic PostgreSQL drill disabled: restore would overwrite DATABASE_URL. '
+            'Back up the source, then run recovery.py restore with DATABASE_URL set '
+            'to an isolated disposable target and explicit --force; retain both receipts.'
+        )
+    if rpo_target_seconds < 0 or rto_target_seconds < 0:
+        raise ValueError('recovery targets must be non-negative')
     database = Path(database)
     output = Path(output)
     backup_key = backup_key or os.getenv("BACKUP_HMAC_KEY", "development-backup-key-not-for-production")
@@ -53,8 +44,8 @@ def collect(database, output, rpo_target_seconds=3600, rto_target_seconds=900, b
         start = time.monotonic()
         r = restore(archive, restored, force=True, key=backup_key, audit_key=audit_key)
         restore_seconds = time.monotonic() - start
-        latest = _latest_audit_ts(database)
-        rpo_seconds = 0 if latest else 0
+        # A fresh local roundtrip does not measure loss at a disaster boundary.
+        rpo_seconds = None
         payload = {
             "kind": "recovery_drill",
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -69,7 +60,9 @@ def collect(database, output, rpo_target_seconds=3600, rto_target_seconds=900, b
             "rpo_seconds": rpo_seconds,
             "rpo_target_seconds": rpo_target_seconds,
             "rto_target_seconds": rto_target_seconds,
-            "rpo_pass": rpo_seconds <= rpo_target_seconds,
+            "rpo_pass": False,
+            "rpo_status": "not_measured",
+            "scope": "local_backup_restore_roundtrip_not_disaster_recovery",
             "rto_pass": restore_seconds <= rto_target_seconds,
         }
         doc = {"payload": payload, "signature": sign(payload, backup_key)}

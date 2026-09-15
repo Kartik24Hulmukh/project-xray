@@ -81,12 +81,41 @@ jobs:
           cur.close(); conn.close()
           print('schema applied')
           PY
-      - name: Live PostgreSQL tests
+      - name: Live PostgreSQL tests and retained receipt
         run: |
-          python3 -m unittest discover -s tests -p 'test_postgres_live.py' -v
-          python3 -m unittest discover -s tests -p 'test_postgres_concurrency.py' -v
-          python3 -m unittest discover -s tests -p 'test_idempotency_recovery.py' -v
-          python3 -m unittest discover -s tests -p 'test_postgres_fencing.py' -v
+          mkdir -p artifacts/postgres
+          python3 - <<'PY'
+          import json, os, platform, subprocess, sys
+          from pathlib import Path
+          import psycopg2
+          connection = psycopg2.connect(os.environ['DATABASE_URL'])
+          with connection.cursor() as cursor:
+              cursor.execute('SELECT version()')
+              version = cursor.fetchone()[0]
+          connection.close()
+          results = []
+          for pattern in ('test_postgres_live.py', 'test_postgres_concurrency.py',
+                          'test_idempotency_recovery.py', 'test_postgres_fencing.py'):
+              run = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', pattern, '-v'],
+                                   capture_output=True, text=True)
+              text = run.stdout + run.stderr
+              Path('artifacts/postgres/' + pattern + '.log').write_text(text)
+              print(text)
+              results.append({'suite': pattern, 'exit_code': run.returncode,
+                              'skipped': 'skipped=' in text or '... skipped ' in text})
+          receipt = {'postgres_version': version, 'python': platform.python_version(),
+                     'schema_apply': 'passed in preceding step', 'connection_closed': True,
+                     'suites': results, 'all_pass': all(r['exit_code'] == 0 and not r['skipped'] for r in results)}
+          Path('artifacts/postgres/receipt.json').write_text(json.dumps(receipt, indent=2))
+          sys.exit(0 if receipt['all_pass'] else 1)
+          PY
+      - name: Retain PostgreSQL version and test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: postgres-evidence
+          path: artifacts/postgres/
+          retention-days: 14
 
   container-smoke:
     name: container-smoke
@@ -101,10 +130,11 @@ jobs:
           docker run -d --name xray-smoke -p 127.0.0.1:18080:8080 xray-smoke
           trap 'docker logs xray-smoke; docker rm -f xray-smoke' EXIT
           for attempt in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:18080/ready; then break; fi
+            if curl -fsS http://127.0.0.1:18080/readyz; then break; fi
             sleep 1
           done
-          curl -fsS http://127.0.0.1:18080/ready
+          curl -fsS http://127.0.0.1:18080/readyz
+          curl -fsS http://127.0.0.1:18080/healthz
           curl -fsS http://127.0.0.1:18080/ | grep 'Project X-Ray'
           curl -fsS http://127.0.0.1:18080/app.js | grep 'loadProjects'
           curl -fsS http://127.0.0.1:18080/styles.css > /dev/null

@@ -76,6 +76,13 @@ class TestProbeAliases(unittest.TestCase):
         self.assertEqual(ba['status'], bb['status'])
         self.assertEqual(ba['version'], bb['version'])
 
+    def test_healthz_is_canonical_liveness(self):
+        a, body = self._get('/healthz')
+        self.assertEqual(a, 200)
+        legacy = self._get('/health')[1]
+        self.assertEqual(body['status'], legacy['status'])
+        self.assertEqual(body['version'], legacy['version'])
+
     def test_readyz_mirrors_ready(self):
         a, ba = self._get('/ready')
         b, bb = self._get('/readyz')

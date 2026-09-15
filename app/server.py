@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 try:
+    from app import telemetry
     from app.audit import append as append_audit, verify as verify_audit, verify_head as verify_audit_head
     from app.capabilities import CapabilityPolicy, denial_reason
     from app.database import connect, db, IS_POSTGRES, IntegrityError, DatabaseBusy, get_schema_version, set_schema_version, table_exists, integrity_check
@@ -24,6 +25,7 @@ try:
     from app.security import token_hash, verify_gateway_assertion, verify_proxy
     from app.storage import settings_from_env, verify_managed_object
 except ModuleNotFoundError:
+    import telemetry
     from audit import append as append_audit, verify as verify_audit, verify_head as verify_audit_head
     from capabilities import CapabilityPolicy, denial_reason
     from database import connect, db, IS_POSTGRES, IntegrityError, DatabaseBusy, get_schema_version, set_schema_version, table_exists, integrity_check
@@ -548,6 +550,11 @@ class H(BaseHTTPRequestHandler):
         minted. A new server span id is always generated. OpenTelemetry
         collectors correlate the JSON log lines on ``trace_id``/``span_id``.
         """
+        span = getattr(self, '_otel_span', None)
+        if span is not None:
+            ctx = span.get_span_context()
+            trace_id, span_id = f'{ctx.trace_id:032x}', f'{ctx.span_id:016x}'
+            return trace_id, span_id, f'00-{trace_id}-{span_id}-{int(ctx.trace_flags):02x}'
         cached = getattr(self, '_trace', None)
         if cached:
             return cached
@@ -571,11 +578,23 @@ class H(BaseHTTPRequestHandler):
                     'trace_id': trace_id,
                     'span_id': span_id,
                     'remote': self.client_address[0],
-                    'message': fmt % args,
+                    'message': 'http_request',
+                    'route': telemetry.safe_route(getattr(self, 'path', '')),
+                    'status': getattr(self, '_response_status', None),
                 },
                 separators=(',', ':'),
             )
         )
+
+    def send_response(self, code, message=None):
+        self._response_status = code
+        span = getattr(self, '_otel_span', None)
+        if span is not None:
+            from opentelemetry.trace import StatusCode
+            span.set_attribute('http.response.status_code', code)
+            if code >= 500:
+                span.set_status(StatusCode.ERROR)
+        return super().send_response(code, message)
 
     def common(self, code, ctype, extra_headers=None):
         self.send_response(code)
@@ -637,7 +656,7 @@ class H(BaseHTTPRequestHandler):
                     'event': 'capability_denied',
                     'request_id': self.request_id,
                     'method': method,
-                    'path': path,
+                    'path': telemetry.safe_route(path),
                     'reason': reason,
                 },
                 separators=(',', ':'),
@@ -736,7 +755,7 @@ class H(BaseHTTPRequestHandler):
                     'level': 'error',
                     'request_id': rid,
                     'method': method,
-                    'path': path,
+                    'path': telemetry.safe_route(path),
                     'exception_class': type(exc).__name__,
                     'stack': [{'file': Path(frame.filename).name, 'line': frame.lineno, 'function': frame.name}
                               for frame in traceback.extract_tb(exc.__traceback__)],
@@ -1556,11 +1575,14 @@ def _bound_execution(method):
     """
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
-        gate = getattr(getattr(self, 'server', None), '_exec', None)
-        if gate is None:
-            return method(self, *args, **kwargs)
-        with gate:
-            return method(self, *args, **kwargs)
+        from contextlib import nullcontext
+        server = getattr(self, 'server', None)
+        gate = getattr(server, '_exec', None)
+        observer = getattr(server, 'telemetry', None)
+        # Include execution admission wait, but never hold execution for slow headers.
+        with observer.request(self) if observer else nullcontext():
+            with gate if gate is not None else nullcontext():
+                return method(self, *args, **kwargs)
     return wrapper
 
 
@@ -1598,6 +1620,17 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         self._slots = threading.BoundedSemaphore(workers)
         self._exec = threading.BoundedSemaphore(self.exec_parallelism)
         super().__init__(address, handler)
+        try:
+            self.telemetry = telemetry.configured()
+        except Exception:
+            super().server_close()
+            raise
+
+    def server_close(self):
+        super().server_close()
+        observer = getattr(self, "telemetry", None)
+        if observer is not None:
+            observer.shutdown()
 
     def process_request(self, request, client_address):
         # Backpressure the accept loop instead of closing sockets with unread

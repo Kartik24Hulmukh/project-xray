@@ -327,16 +327,13 @@ def readiness_verify_audit(c, budget_ms=None):
         and (now_mono - cached['verified_at']) < READYZ_FULL_VERIFY_INTERVAL
     ):
         return {'events': cached['events'], 'head': cached['head']}
-    head_state = verify_audit_head(c, AUDIT_KEY)
-    now_mono = time.monotonic()
-    with _AUDIT_PROBE_LOCK:
-        fresh = (
-            _AUDIT_PROBE_CACHE['head'] == head_state['head']
-            and _AUDIT_PROBE_CACHE['events'] == head_state['events']
-            and (now_mono - _AUDIT_PROBE_CACHE['verified_at']) < READYZ_FULL_VERIFY_INTERVAL
-        )
-    if fresh:
-        return head_state
+    # Everyone that reaches this point (scanner *and* coalesced waiters) joins
+    # on the O(1) signed head checkpoint. Running the strict O(n) COUNT(*) here
+    # made every waiter in a cold-start probe storm pay a full table scan on the
+    # same handle, starving the single scanner (observed: 47 scans started, 0
+    # completed, cold p95 781 ms on a 100k ledger). The strict cardinality proof
+    # now runs exactly once, inside the scanner, per head change.
+    head_state = peek_state
     budget = READYZ_VERIFY_BUDGET_MS if budget_ms is None else float(budget_ms)
     deadline = now_mono + budget / 1000.0
     if not _AUDIT_VERIFY_SINGLEFLIGHT.acquire(blocking=False):
@@ -362,6 +359,9 @@ def readiness_verify_audit(c, budget_ms=None):
     try:
         _metric_inc('readyz_verify_inflight')
         _AUDIT_VERIFY_DONE.clear()
+        # Strict cardinality proof (O(n) COUNT(*)) runs only here, under the
+        # single-flight lock, so it is paid once per head change, never per probe.
+        head_state = verify_audit_head(c, AUDIT_KEY)
         with _AUDIT_PROBE_LOCK:
             if _AUDIT_VERIFY_PROGRESS['head_target'] != head_state['head']:
                 _AUDIT_VERIFY_PROGRESS.update(head_target=head_state['head'], last_id=0, previous='', count=0, scanned=0)

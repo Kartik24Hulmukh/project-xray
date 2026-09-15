@@ -91,7 +91,10 @@ def main():
             statuses = set()
             for c in out['cases'].values(): statuses |= set(c['statuses'])
             out['no_5xx'] = not any(s.startswith('5') for s in statuses)
-            out['all_pass'] = (proc_alive and out['no_5xx'] and out['ready_after'] == 200
+            log.flush()
+            out['tracebacks_in_log'] = Path(d, 'server.log').read_text().count('Traceback (most recent call last)')
+            out['all_pass'] = (out['tracebacks_in_log'] == 0 and out['live_after'] == 200
+                               and set(out['cases']['out_of_order_idempotent_replay']['statuses']) <= {'201', '409'} and proc_alive and out['no_5xx'] and out['ready_after'] == 200
                                and out['cases']['slowloris_60_held_sockets']['served_while_held']
                                and out['cases']['after_30_mid_body_drops']['all_200']
                                and out['cases']['out_of_order_idempotent_replay']['unique_ids'] == 1)

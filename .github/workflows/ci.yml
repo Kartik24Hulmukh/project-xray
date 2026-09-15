@@ -35,6 +35,19 @@ jobs:
         run: python3 scripts/rehearse_production.py
       - name: Local synthetic load regression
         run: python3 scripts/stress_local.py
+      - name: Seeded chaos and actual rate-limit shock
+        run: |
+          python3 scripts/fault_injection.py --seed 20260915
+          python3 scripts/rate_limit_shock.py
+      - name: Retain local launch gate receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: launch-hardening-evidence
+          path: |
+            artifacts/hardening/
+            docs/validation/launch-v1-rate-shock.json
+          retention-days: 14
       - name: Synthetic smoke
         run: python3 scripts/smoke_e2e.py
       - name: Release checks
@@ -95,7 +108,8 @@ jobs:
           connection.close()
           results = []
           for pattern in ('test_postgres_live.py', 'test_postgres_concurrency.py',
-                          'test_idempotency_recovery.py', 'test_postgres_fencing.py'):
+                          'test_idempotency_recovery.py', 'test_postgres_fencing.py',
+                          'test_postgres_reconcile.py'):
               run = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', pattern, '-v'],
                                    capture_output=True, text=True)
               text = run.stdout + run.stderr

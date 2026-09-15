@@ -1,0 +1,15 @@
+{
+  "base": "e9db0276ca72c416e7601f8481574a20479125d9",
+  "python": "3.14.6",
+  "tests": {
+    "run": 300,
+    "skipped": 8,
+    "failures": 0,
+    "seconds": 13.218
+  },
+  "baseline_stress_sha256": "476528ce57b0813f495a57392616595d624aa36c8b8093f2eab36bec7a96b066",
+  "attachments": {
+    "project-xray-v1-launch-report-1.md": "a64aaa2d8f8b638187a36626fa00e842fe858754b15f865be229114d593e313c",
+    "project-xray-v1-launch-report-turn5.md": "84ea946857f8223508ffb37097f4fe805c182a12d8a3524d7da009610dece8ac"
+  }
+}

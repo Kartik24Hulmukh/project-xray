@@ -1,0 +1,23 @@
+{
+  "scope": "local synthetic SQLite, limit=1/minute, 100 clients, 200 reads",
+  "statuses": {
+    "200": 1,
+    "429": 199
+  },
+  "probes": [
+    {
+      "status": 200,
+      "retry_after": null,
+      "latency_ms": 0.6695091724395752
+    },
+    {
+      "status": 200,
+      "retry_after": null,
+      "latency_ms": 1.4162138104438782
+    }
+  ],
+  "tracebacks": 0,
+  "server_alive": true,
+  "retry_after_valid": true,
+  "all_pass": true
+}

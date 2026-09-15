@@ -69,3 +69,6 @@ the stack. Pin SDK + OTLP/HTTP exporter; retain stdlib-only mode when disabled.
 Canonical `/healthz` and `/readyz` coexist with legacy probe aliases. PostgreSQL CI
 must retain version/suite receipts and fail when a configured live suite skips.
 See `docs/OTEL_RUNBOOK.md` for sampling, privacy, bounded export and rollback.
+
+## September launch: offline maintenance
+Use existing serialized database transactions plus primary-key keyset batches for lease reconciliation. Default dry-run and retain completed receipts indefinitely; explicit retention changes retry semantics. Reuse integrated server observability rather than introducing parallel no-op tracing/probe modules. See docs/IDEMPOTENCY_MAINTENANCE.md.

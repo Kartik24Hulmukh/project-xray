@@ -1,0 +1,33 @@
+{
+ "seed": 20260915,
+ "exec_parallelism": "4",
+ "cases": {
+  "slowloris_60_held_sockets": {
+   "statuses": {
+    "200": 200
+   },
+   "p50_ms": 13.09,
+   "p95_ms": 34.72,
+   "served_while_held": true
+  },
+  "after_30_mid_body_drops": {
+   "statuses": {
+    "200": 300
+   },
+   "all_200": true
+  },
+  "out_of_order_idempotent_replay": {
+   "statuses": {
+    "409": 5,
+    "201": 45
+   },
+   "unique_ids": 1
+  }
+ },
+ "ready_after": 200,
+ "live_after": 200,
+ "server_alive": true,
+ "no_5xx": true,
+ "tracebacks_in_log": 0,
+ "all_pass": true
+}

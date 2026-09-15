@@ -11,7 +11,7 @@ jobs:
     name: static
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
@@ -26,7 +26,7 @@ jobs:
       TOFU_DIGEST: ${{ vars.OPENTOFU_IMAGE_DIGEST }}
       IAC_DIR: infra/aws-controlled-beta
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Validate OpenTofu image digest format
         run: |
           set -euo pipefail
@@ -72,7 +72,7 @@ jobs:
       TF_VAR_callback_urls: ${{ vars.CALLBACK_URLS_JSON }}
       TF_VAR_logout_urls: ${{ vars.LOGOUT_URLS_JSON }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Check AWS bootstrap gate
         run: |
           set -euo pipefail

@@ -3,7 +3,7 @@
 # PostgreSQL mode: psycopg2-binary is required
 
 # PostgreSQL driver (only needed when DATABASE_URL is set)
-psycopg2-binary>=2.9,<3
+psycopg2-binary>=2.9.12,<3
 
 # AWS SigV4, ECS task-role/default credential chain, and refreshable
 # credentials for managed S3 evidence storage.

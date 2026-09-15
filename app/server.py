@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 try:
     from app import telemetry
-    from app.audit import append as append_audit, verify as verify_audit, verify_head as verify_audit_head
+    from app.audit import append as append_audit, verify as verify_audit, verify_head as verify_audit_head, verify_segment as verify_audit_segment, verify_orphans as verify_audit_orphans
     from app.capabilities import CapabilityPolicy, denial_reason
     from app.database import connect, db, IS_POSTGRES, IntegrityError, DatabaseBusy, get_schema_version, set_schema_version, table_exists, integrity_check
     from app.operations import send_alert
@@ -27,7 +27,7 @@ try:
     from app.storage import settings_from_env, verify_managed_object
 except ModuleNotFoundError:
     import telemetry
-    from audit import append as append_audit, verify as verify_audit, verify_head as verify_audit_head
+    from audit import append as append_audit, verify as verify_audit, verify_head as verify_audit_head, verify_segment as verify_audit_segment, verify_orphans as verify_audit_orphans
     from capabilities import CapabilityPolicy, denial_reason
     from database import connect, db, IS_POSTGRES, IntegrityError, DatabaseBusy, get_schema_version, set_schema_version, table_exists, integrity_check
     from operations import send_alert
@@ -61,6 +61,12 @@ METRICS = {
     'idempotency_stuck_reclaims': 0,
     'idempotency_lease_lost': 0,
     'quarantine_blocks': 0,
+    'readyz_verify_inflight': 0,
+    'readyz_verify_coalesced': 0,
+    'readyz_verify_events_scanned': 0,
+    'readyz_verify_completed': 0,
+    'readyz_verify_budget_exhausted': 0,
+    'readyz_verify_ms': 0,
 }
 
 
@@ -259,11 +265,68 @@ def init():
 # the head moved past the last fully-verified state or the periodic re-verify
 # window (READYZ_FULL_VERIFY_INTERVAL_SECONDS, default 300, 0 = every probe) lapses.
 READYZ_FULL_VERIFY_INTERVAL = float(os.getenv('READYZ_FULL_VERIFY_INTERVAL_SECONDS', '300'))
+# Cold/head-change verification used to walk the whole chain inside the probe
+# request, so a 100k-event ledger blew far past the 200 ms recovery ceiling and
+# every concurrent probe started its own duplicate scan. The walk is now
+# streamed in bounded segments (O(batch) RAM), coalesced behind a single-flight
+# coordinator (one scan per process, never a duplicate), and capped by a hard
+# per-probe budget. When the budget is exhausted the probe reports NOT ready
+# with an explicit reason and resumable progress - it never reports ready to
+# hide latency, and it never weakens tamper detection.
+READYZ_VERIFY_BUDGET_MS = float(os.getenv('READYZ_VERIFY_BUDGET_MS', '25'))
+# A coalesced waiter never burns the whole probe budget: it parks briefly and
+# then answers not-ready, keeping probe latency flat under a cold-start storm.
+READYZ_VERIFY_COALESCE_WAIT_MS = float(os.getenv('READYZ_VERIFY_COALESCE_WAIT_MS', '15'))
+_READYZ_VERIFY_BATCH_ENV = int(os.getenv('READYZ_VERIFY_BATCH', '1000'))
+READYZ_VERIFY_BATCH = _READYZ_VERIFY_BATCH_ENV if _READYZ_VERIFY_BATCH_ENV > 0 else 1000
 _AUDIT_PROBE_LOCK = threading.Lock()
 _AUDIT_PROBE_CACHE = {'head': None, 'events': -1, 'verified_at': 0.0}
+_AUDIT_VERIFY_SINGLEFLIGHT = threading.Lock()
+_AUDIT_VERIFY_DONE = threading.Event()
+_AUDIT_VERIFY_PROGRESS = {'head_target': None, 'last_id': 0, 'previous': '', 'count': 0, 'scanned': 0}
 
 
-def readiness_verify_audit(c):
+class AuditVerificationPending(Exception):
+    """Bounded verification budget elapsed; readiness is unproven, not failed."""
+
+    def __init__(self, progress):
+        super().__init__('audit verification in progress')
+        self.progress = progress
+
+
+def audit_verification_progress():
+    with _AUDIT_PROBE_LOCK:
+        return {
+            'verified_events': _AUDIT_VERIFY_PROGRESS['count'],
+            'cursor_id': _AUDIT_VERIFY_PROGRESS['last_id'],
+            'events_scanned': _AUDIT_VERIFY_PROGRESS['scanned'],
+        }
+
+
+def reset_readiness_verifier():
+    """Test/ops hook: drop cached verification state and resumable cursor."""
+    with _AUDIT_PROBE_LOCK:
+        _AUDIT_PROBE_CACHE.update(head=None, events=-1, verified_at=0.0)
+        _AUDIT_VERIFY_PROGRESS.update(head_target=None, last_id=0, previous='', count=0, scanned=0)
+    _AUDIT_VERIFY_DONE.clear()
+
+
+def readiness_verify_audit(c, budget_ms=None):
+    # Fast path: peek the head row only (indexed, O(1)). A COUNT(*) on every
+    # probe is itself an O(n) scan, which is what made steady-state probes cost
+    # ~7 ms on a 100k ledger. Cardinality is still proven by the signed head
+    # checkpoint and the periodic full streaming re-verify.
+    peek_state = verify_audit_head(c, AUDIT_KEY, strict_count=False)
+    peek_head = peek_state['head']
+    now_mono = time.monotonic()
+    with _AUDIT_PROBE_LOCK:
+        cached = dict(_AUDIT_PROBE_CACHE)
+    if (
+        cached['head'] == peek_head
+        and cached['events'] >= 0
+        and (now_mono - cached['verified_at']) < READYZ_FULL_VERIFY_INTERVAL
+    ):
+        return {'events': cached['events'], 'head': cached['head']}
     head_state = verify_audit_head(c, AUDIT_KEY)
     now_mono = time.monotonic()
     with _AUDIT_PROBE_LOCK:
@@ -274,10 +337,65 @@ def readiness_verify_audit(c):
         )
     if fresh:
         return head_state
-    full = verify_audit(c, AUDIT_KEY)
-    with _AUDIT_PROBE_LOCK:
-        _AUDIT_PROBE_CACHE.update(head=full['head'], events=full['events'], verified_at=now_mono)
-    return full
+    budget = READYZ_VERIFY_BUDGET_MS if budget_ms is None else float(budget_ms)
+    deadline = now_mono + budget / 1000.0
+    if not _AUDIT_VERIFY_SINGLEFLIGHT.acquire(blocking=False):
+        # Coalesce: wait on the in-flight scan's result. No DB handle work and
+        # no transaction/advisory lock is held while waiting, so a waiter can
+        # never invert locks with the scanner.
+        _metric_inc('readyz_verify_coalesced')
+        remaining = deadline - time.monotonic()
+        coalesce_wait = READYZ_VERIFY_COALESCE_WAIT_MS / 1000.0
+        if remaining > coalesce_wait:
+            remaining = coalesce_wait
+        if _AUDIT_VERIFY_DONE.wait(remaining if remaining > 0 else 0.0):
+            with _AUDIT_PROBE_LOCK:
+                shared = (
+                    _AUDIT_PROBE_CACHE['head'] == head_state['head']
+                    and _AUDIT_PROBE_CACHE['events'] == head_state['events']
+                )
+            if shared:
+                return head_state
+        _metric_inc('readyz_verify_budget_exhausted')
+        raise AuditVerificationPending(audit_verification_progress())
+    started = time.monotonic()
+    try:
+        _metric_inc('readyz_verify_inflight')
+        _AUDIT_VERIFY_DONE.clear()
+        with _AUDIT_PROBE_LOCK:
+            if _AUDIT_VERIFY_PROGRESS['head_target'] != head_state['head']:
+                _AUDIT_VERIFY_PROGRESS.update(head_target=head_state['head'], last_id=0, previous='', count=0, scanned=0)
+            cursor = dict(_AUDIT_VERIFY_PROGRESS)
+        while True:
+            segment = verify_audit_segment(
+                c, AUDIT_KEY, cursor['last_id'], cursor['previous'], READYZ_VERIFY_BATCH, cursor['count'],
+            )
+            cursor.update(
+                last_id=segment['last_id'],
+                previous=segment['previous'],
+                count=segment['count'],
+                scanned=cursor['scanned'] + segment['scanned'],
+            )
+            _metric_inc('readyz_verify_events_scanned', segment['scanned'])
+            with _AUDIT_PROBE_LOCK:
+                _AUDIT_VERIFY_PROGRESS.update(cursor)
+            if segment['complete']:
+                verify_audit_orphans(c, cursor['count'])
+                result = {'events': cursor['count'], 'head': cursor['previous']}
+                elapsed_ms = (time.monotonic() - started) * 1000.0
+                _metric_inc('readyz_verify_completed')
+                _metric_inc('readyz_verify_ms', int(elapsed_ms))
+                with _AUDIT_PROBE_LOCK:
+                    _AUDIT_PROBE_CACHE.update(head=result['head'], events=result['events'], verified_at=time.monotonic())
+                    _AUDIT_VERIFY_PROGRESS.update(head_target=None, last_id=0, previous='', count=0, scanned=0)
+                _AUDIT_VERIFY_DONE.set()
+                return result
+            time.sleep(0)  # yield between segments so probes are not starved
+            if time.monotonic() >= deadline:
+                _metric_inc('readyz_verify_budget_exhausted')
+                raise AuditVerificationPending(audit_verification_progress())
+    finally:
+        _AUDIT_VERIFY_SINGLEFLIGHT.release()
 
 
 def audit(c, actor, action, typ, oid, detail=''):
@@ -976,6 +1094,20 @@ class H(BaseHTTPRequestHandler):
                         'time': now(),
                         'capabilities': capability_policy.as_public_dict(),
                     }
+                )
+            except AuditVerificationPending as pending:
+                # Honest degraded answer: integrity is unproven within the
+                # probe budget, so the instance stays out of the load balancer
+                # while the coalesced background scan resumes from its cursor.
+                return self.out(
+                    {
+                        'status': 'not_ready',
+                        'ready': False,
+                        'reason': 'audit_verification_in_progress',
+                        'audit_verification': pending.progress,
+                        'capabilities': capability_policy.as_public_dict(),
+                    },
+                    503,
                 )
             except Exception:
                 return self.out(

@@ -49,19 +49,26 @@ class TestReadyzAuditCache(unittest.TestCase):
         s = self.server
         with s._AUDIT_PROBE_LOCK:
             s._AUDIT_PROBE_CACHE.update(head=None, events=-1, verified_at=0.0)
+        s.reset_readiness_verifier()
         self._interval = s.READYZ_FULL_VERIFY_INTERVAL
         self._orig_verify = s.verify_audit
+        self._orig_segment = s.verify_audit_segment
         self.calls = {'full': 0}
 
-        def counting(c, key):
-            self.calls['full'] += 1
-            return self._orig_verify(c, key)
+        def counting_segment(c, key, start_id, previous, limit, count_offset):
+            # A streaming walk always restarts at cursor 0, so counting
+            # segments that begin at the chain root counts full verifications.
+            if start_id == 0:
+                self.calls['full'] += 1
+            return self._orig_segment(c, key, start_id, previous, limit, count_offset)
 
-        s.verify_audit = counting
+        s.verify_audit_segment = counting_segment
 
     def tearDown(self):
         self.server.verify_audit = self._orig_verify
+        self.server.verify_audit_segment = self._orig_segment
         self.server.READYZ_FULL_VERIFY_INTERVAL = self._interval
+        self.server.reset_readiness_verifier()
 
     def _get(self, path):
         req = urllib.request.Request(f'http://127.0.0.1:{self.port}{path}')
@@ -122,7 +129,7 @@ class TestReadyzAuditCache(unittest.TestCase):
         self._get('/readyz')  # warm cache: failure must not be masked by it
         orig = self.server.verify_audit_head
 
-        def boom(c, key):
+        def boom(c, key, strict_count=True):
             raise RuntimeError('audit head checkpoint signature invalid')
 
         self.server.verify_audit_head = boom

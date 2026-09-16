@@ -16,10 +16,14 @@ def start(db,port):
    if call(port,'/ready')[0]==200:return p
   except Exception:time.sleep(.1)
  raise RuntimeError(p.stderr.read().decode())
+def free_port():
+    import socket
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0)); return s.getsockname()[1]
 def stop(p):p.terminate();p.wait(timeout=5)
 def main():
  with tempfile.TemporaryDirectory() as d:
-  db=Path(d)/'live.db';port=18123;p=start(db,port)
+  db=Path(d)/'live.db';port=free_port();p=start(db,port)
   try:
    pid=call(port,'/api/projects','POST',{'title':'Smoke fixture','authority':'Synthetic Authority','summary':'Restart and restore proof','synthetic':True},ADMIN)[1]['id']
    sid=call(port,f'/api/projects/{pid}/sources','POST',{'publisher':'Synthetic source','url':'https://example.invalid/smoke','source_class':'official','retrieved_at':'2026-07-14T00:00:00Z','sha256':'c'*64,'passage':'Synthetic anchor'},ADMIN)[1]['id']

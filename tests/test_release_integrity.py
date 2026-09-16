@@ -12,7 +12,7 @@ class TestReleaseIntegrity(unittest.TestCase):
 
     def test_package_json_version(self):
         pkg = json.loads((ROOT / "package.json").read_text())
-        self.assertEqual(pkg["version"], "0.4.6")
+        self.assertEqual(pkg["version"], "0.4.8")
 
     def test_sbom_version_matches_package(self):
         pkg_version = json.loads((ROOT / "package.json").read_text())["version"]
@@ -30,7 +30,7 @@ class TestReleaseIntegrity(unittest.TestCase):
 
     def test_release_notes_contain_version(self):
         notes = (ROOT / "RELEASE_NOTES.md").read_text()
-        self.assertIn("0.4.6", notes)
+        self.assertIn("0.4.8", notes)
 
     def test_requirements_txt_exists(self):
         self.assertTrue((ROOT / "requirements.txt").exists())

@@ -1,5 +1,12 @@
 # Release notes
 
+## v0.4.8-synthetic-preview-rc1 - launch-v1 hardening (session 8)
+
+- test: smoke_e2e binds an ephemeral localhost port (removes fixed-port 18123 collision flake); restart/restore proofs unchanged.
+- fix(release): reconcile version sources (package.json, /health + /healthz payload, startup log, CycloneDX SBOM, release notes) to 0.4.8 before the synthetic-preview RC tag.
+- docs: session-8 agent-council premortem, frozen baseline metrics and 100x concurrency/fault-injection receipts (docs/validation/SESSION8_COUNCIL_PREMORTEM_AND_100X_RECEIPTS_2026-09-16.md).
+- Scope: controlled synthetic preview only; readiness ledger fail-closed at 0/10 evidenced; no production/GA claim.
+
 ## v0.4.6 — serialisation-safe idempotency fencing and truthful versioning
 
 - Fenced stuck-reservation reclaim by the observed lease token.

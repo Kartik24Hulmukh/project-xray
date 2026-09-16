@@ -614,7 +614,7 @@ def evidence_envelope_from_claim(claim):
         'derivation': {
             'kind': 'snapshot',
             'tool': 'project-xray',
-            'version': '0.4.6',
+            'version': '0.4.8',
             'parent_sha256': None,
         },
         'anchors': [anchor_from_claim(claim)],
@@ -1105,7 +1105,7 @@ class H(BaseHTTPRequestHandler):
                             extra_headers={'Retry-After': str(max(1, 60 - int(time.time()) % 60))})
 
         if path in LIVENESS_PATHS:
-            return self.out({'status': 'ok', 'time': now(), 'version': '0.4.6'})
+            return self.out({'status': 'ok', 'time': now(), 'version': '0.4.8'})
         if path in READINESS_PATHS:
             if not capability_policy.valid or capability_policy.maintenance:
                 return self.out(
@@ -1924,7 +1924,7 @@ def main():
     init()
     server = BoundedHTTPServer((os.getenv('BIND_HOST', '127.0.0.1'), PORT), H)
     state = install_drain_handlers(server)
-    print(json.dumps({'event': 'startup', 'service': 'project-xray', 'version': '0.4.6',
+    print(json.dumps({'event': 'startup', 'service': 'project-xray', 'version': '0.4.8',
                       'port': PORT, 'environment': ENV,
                       'drain_seconds': float(os.getenv('XRAY_DRAIN_SECONDS', '15'))}), flush=True)
     try:

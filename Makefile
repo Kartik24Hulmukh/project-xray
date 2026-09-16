@@ -34,3 +34,7 @@ prod-rehearsal:
 
 package:
 	./scripts/create_release.sh
+
+setup:
+	npm ci
+	node node_modules/playwright/cli.js install chromium

@@ -7,11 +7,11 @@
       "name": "baseline_reads",
       "clients": 1,
       "requests": 100,
-      "seconds": 0.133,
-      "requests_per_second": 750.35,
-      "p50_ms": 1.18,
-      "p95_ms": 2.27,
-      "p99_ms": 2.69,
+      "seconds": 0.146,
+      "requests_per_second": 684.09,
+      "p50_ms": 1.25,
+      "p95_ms": 2.46,
+      "p99_ms": 2.79,
       "statuses": {
         "200": 100
       }
@@ -20,11 +20,11 @@
       "name": "100_client_reads",
       "clients": 100,
       "requests": 20000,
-      "seconds": 23.187,
-      "requests_per_second": 862.56,
-      "p50_ms": 106.13,
-      "p95_ms": 191.38,
-      "p99_ms": 260.22,
+      "seconds": 23.697,
+      "requests_per_second": 843.99,
+      "p50_ms": 106.86,
+      "p95_ms": 189.16,
+      "p99_ms": 261.93,
       "statuses": {
         "200": 20000
       }
@@ -33,11 +33,11 @@
       "name": "100_client_writes",
       "clients": 100,
       "requests": 300,
-      "seconds": 0.596,
-      "requests_per_second": 503.49,
-      "p50_ms": 183.65,
-      "p95_ms": 222.28,
-      "p99_ms": 240.76,
+      "seconds": 0.683,
+      "requests_per_second": 438.94,
+      "p50_ms": 203.7,
+      "p95_ms": 268.67,
+      "p99_ms": 289.35,
       "statuses": {
         "201": 300
       }
@@ -46,36 +46,36 @@
       "name": "100_client_idempotency_race",
       "clients": 100,
       "requests": 100,
-      "seconds": 0.211,
-      "requests_per_second": 473.41,
-      "p50_ms": 101.76,
-      "p95_ms": 172.7,
-      "p99_ms": 177.1,
+      "seconds": 0.175,
+      "requests_per_second": 572.75,
+      "p50_ms": 82.21,
+      "p95_ms": 139.42,
+      "p99_ms": 142.36,
       "statuses": {
-        "409": 1,
-        "201": 99
+        "201": 97,
+        "409": 3
       }
     }
   ],
-  "server_baseline_rss_kb": 31776,
+  "server_baseline_rss_kb": 31936,
   "idempotency_unique_success_ids": 1,
   "health_recovery": {
     "status": 200,
-    "latency_ms": 1.018
+    "latency_ms": 1.024
   },
   "ready_recovery": {
     "status": 200,
-    "latency_ms": 3.932
+    "latency_ms": 4.922
   },
   "readiness_after_load": 200,
   "server_alive": true,
   "tracebacks_in_log": 0,
-  "server_peak_rss_kb": 56272,
+  "server_peak_rss_kb": 55648,
   "server_threads": 1,
   "integrity_check": "ok",
   "audit": {
     "events": 301,
-    "head": "02b59e4fef105ed6eabb51797c8dabde8c2eebac607534b1e2077a453b5b8014"
+    "head": "891d7506c8f9fbc672a1b7f8a6cbff314d8d5ad235d606b1c1d3be56471c92aa"
   },
   "persisted_projects": 301,
   "expected_projects": 301,

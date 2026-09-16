@@ -6,8 +6,8 @@
    "statuses": {
     "200": 200
    },
-   "p50_ms": 14.19,
-   "p95_ms": 38.67,
+   "p50_ms": 14.98,
+   "p95_ms": 48.18,
    "served_while_held": true
   },
   "after_30_mid_body_drops": {
@@ -18,8 +18,8 @@
   },
   "out_of_order_idempotent_replay": {
    "statuses": {
-    "409": 1,
-    "201": 49
+    "201": 48,
+    "409": 2
    },
    "unique_ids": 1
   }
@@ -28,7 +28,7 @@
   "signal": "SIGKILL",
   "exit_code": -9,
   "restart_owner": "test harness (not deployment supervisor)",
-  "recovery_ms": 106.45,
+  "recovery_ms": 108.95,
   "replay_status": 201,
   "same_committed_id": true,
   "pass": true

@@ -1,0 +1,50 @@
+{
+ "service": "project-xray",
+ "scope": "local synthetic SQLite; no external target",
+ "session": 9,
+ "all_gates_pass": true,
+ "gates": {
+  "unit_integration": {
+   "cmd": "-m unittest discover -s tests",
+   "rc": 0,
+   "seconds": 21.92,
+   "tail": "line\":237,\"function\":\"boom\"}]}\n{\"time\":\"2026-09-16T14:27:42.412622+00:00\",\"request_id\":\"req_4ea52d6698f94586\",\"trace_id\":\"c851cea389ff3d4ef97ca9bd4cfcacb0\",\"span_id\":\"84a68058945f2969\",\"remote\":\"127.0.0.1\",\"message\":\"http_request\",\"route\":\"/api/projects\",\"status\":500}\n{\"time\":\"2026-09-16T14:27:42.414051+00:00\",\"request_id\":\"req_f10e2a016e874530\",\"trace_id\":\"78dc41080b37057bfe72b5f5eac9e8b4\",\"span_id\":\"74227b3d5d45ccd3\",\"remote\":\"127.0.0.1\",\"message\":\"http_request\",\"route\":\"/health\",\"status\":200}"
+  },
+  "stress_100x": {
+   "cmd": "scripts/stress_local.py --requests 20000 --output artifacts/hardening/stress_session9.json",
+   "rc": 0,
+   "seconds": 26.19,
+   "tail": ": 200,\n  \"server_alive\": true,\n  \"tracebacks_in_log\": 0,\n  \"server_peak_rss_kb\": 62992,\n  \"server_threads\": 1,\n  \"integrity_check\": \"ok\",\n  \"audit\": {\n    \"events\": 301,\n    \"head\": \"fc270e814babf2658bfa2791b5768a6fd62988462806503a669259dcf0d11c51\"\n  },\n  \"persisted_projects\": 301,\n  \"expected_projects\": 301,\n  \"safety_pass\": true,\n  \"launch_gates\": {\n    \"statuses_pass\": true,\n    \"ram_pass\": true,\n    \"recovery_pass\": true,\n    \"process_pass\": true\n  },\n  \"zero_rejection_capacity_pass\": true\n}"
+  },
+  "fault_injection": {
+   "cmd": "scripts/fault_injection.py --seed 20260913 --output artifacts/hardening/fault_session9.json",
+   "rc": 0,
+   "seconds": 2.12,
+   "tail": "m\": \"4\",\n \"cases\": {\n  \"slowloris_60_held_sockets\": {\n   \"statuses\": {\n    \"200\": 200\n   },\n   \"p50_ms\": 15.86,\n   \"p95_ms\": 45.97,\n   \"served_while_held\": true\n  },\n  \"after_30_mid_body_drops\": {\n   \"statuses\": {\n    \"200\": 300\n   },\n   \"all_200\": true\n  },\n  \"out_of_order_idempotent_replay\": {\n   \"statuses\": {\n    \"201\": 49,\n    \"409\": 1\n   },\n   \"unique_ids\": 1\n  }\n },\n \"ready_after\": 200,\n \"live_after\": 200,\n \"server_alive\": true,\n \"no_5xx\": true,\n \"tracebacks_in_log\": 0,\n \"all_pass\": true\n}"
+  },
+  "redteam_fuzz": {
+   "cmd": "scripts/redteam_fuzz.py",
+   "rc": 0,
+   "seconds": 0.93,
+   "tail": "\": \"nested_bomb\",\n   \"status\": 400,\n   \"allowed\": [\n    400,\n    413\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"type_confusion\",\n   \"status\": 400,\n   \"allowed\": [\n    400\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"sql_meta_in_name\",\n   \"status\": 400,\n   \"allowed\": [\n    201,\n    400\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"idem_key_overlong\",\n   \"status\": 400,\n   \"allowed\": [\n    201,\n    400\n   ],\n   \"pass\": true\n  }\n ],\n \"health_after_fuzz\": 200,\n \"no_5xx_or_crash\": true,\n \"all_pass\": true\n}"
+  },
+  "rate_limit_shock": {
+   "cmd": "scripts/rate_limit_shock.py",
+   "rc": 0,
+   "seconds": 0.9,
+   "tail": "{\n  \"scope\": \"local synthetic SQLite, limit=1/minute, 100 clients, 200 reads\",\n  \"statuses\": {\n    \"200\": 1,\n    \"429\": 199\n  },\n  \"probes\": [\n    {\n      \"status\": 200,\n      \"retry_after\": null,\n      \"latency_ms\": 0.7062060758471489\n    },\n    {\n      \"status\": 200,\n      \"retry_after\": null,\n      \"latency_ms\": 2.752993255853653\n    }\n  ],\n  \"tracebacks\": 0,\n  \"server_alive\": true,\n  \"retry_after_valid\": true,\n  \"all_pass\": true\n}"
+  },
+  "release_claim_guard": {
+   "cmd": "scripts/check_release_claims.py",
+   "rc": 0,
+   "seconds": 0.05,
+   "tail": "Readiness ledger: 0/10 passed with evidence\nRelease-claim guard: PASS - no unsupported maturity claim found"
+  },
+  "smoke_e2e": {
+   "cmd": "scripts/smoke_e2e.py",
+   "rc": 0,
+   "seconds": 2.42,
+   "tail": "{\"status\": \"ok\", \"project_id\": \"prj_8fbcd5bb09e640b8\", \"restart\": \"passed\", \"restore\": \"passed\", \"report\": \"passed\", \"rti\": \"passed\", \"capsule\": \"passed\", \"audit\": \"passed\", \"static_assets\": \"passed\"}"
+  }
+ }
+}

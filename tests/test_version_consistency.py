@@ -13,11 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class TestVersionConsistency(unittest.TestCase):
     def test_package_and_sbom_and_runtime_versions_align(self):
         pkg = json.loads((ROOT / 'package.json').read_text())
-        self.assertEqual(pkg['version'], '0.4.6')
+        self.assertEqual(pkg['version'], '0.4.8')
         sbom_src = (ROOT / 'scripts/generate_sbom.py').read_text()
-        self.assertIn("'version':'0.4.6'", sbom_src.replace(' ', ''))
+        self.assertIn("'version':'0.4.8'", sbom_src.replace(' ', ''))
         server = (ROOT / 'app/server.py').read_text()
-        self.assertIn("'version': '0.4.6'", server)
+        self.assertIn("'version': '0.4.8'", server)
         self.assertNotIn("'version': '0.4.0'", server)
         self.assertNotIn("'version':'0.2.0'", sbom_src.replace(' ', ''))
 

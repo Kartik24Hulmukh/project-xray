@@ -1,0 +1,24 @@
+{
+  "service": "project-xray",
+  "scope": "local synthetic SQLite; no external target",
+  "complete": false,
+  "all_gates_pass": false,
+  "production_ready": false,
+  "gates": {
+    "unit_integration": {
+      "cmd": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ],
+      "rc": 0,
+      "timed_out": false,
+      "seconds": 21.71,
+      "tail": " <HTTPError 403: 'Forbidden'>\n  _warnings.warn(self.warn_message, ResourceWarning)\n./usr/local/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 401: 'Unauthorized'>\n  _warnings.warn(self.warn_message, ResourceWarning)\n................................................................................/usr/local/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 500: 'Internal Server Error'>\n  _warnings.warn(self.warn_message, ResourceWarning)\n..............................................................................................................sssssssssssssssssss............/usr/local/lib/python3.14/_weakrefset.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7494b44d3e20>\n  self.data.add(ref(item, self._remove))\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n/usr/local/lib/python3.14/_weakrefset.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7494b45c4a90>\n  self.data.add(ref(item, self._remove))\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n/usr/local/lib/python3.14/_weakrefset.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7494b25232e0>\n  self.data.add(ref(item, self._remove))\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n..........................Release-claim guard FAILED CLOSED: production-readiness ledger contains no checks\n.Release-claim guard FAILED CLOSED: [Errno 2] No such file or directory: '/home/daytona/project-xray/ops/does-not-exist.yaml'\n............................../usr/local/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 500: 'Internal Server Error'>\n  _warnings.warn(self.warn_message, ResourceWarning)\n.............................................................\n----------------------------------------------------------------------\nRan 371 tests in 21.298s\n\nOK (skipped=19)",
+      "tests_run": 371,
+      "tests_skipped": 19
+    }
+  }
+}

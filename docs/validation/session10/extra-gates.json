@@ -1,0 +1,22 @@
+{
+  "check_iac_contract.py": {
+    "rc": 0,
+    "seconds": 0.06
+  },
+  "check_workflow_security.py": {
+    "rc": 0,
+    "seconds": 0.03
+  },
+  "check_grype_exceptions.py": {
+    "rc": 0,
+    "seconds": 0.06
+  },
+  "rehearse_production.py": {
+    "rc": 0,
+    "seconds": 1.6
+  },
+  "check_release.py": {
+    "rc": 0,
+    "seconds": 25.55
+  }
+}

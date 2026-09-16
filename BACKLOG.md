@@ -38,7 +38,7 @@
 - [x] Expand synthetic export/restart/restore smoke; add container CI contract.
 - [ ] Pass actual container CI and target-environment operational/editorial gates.
 - [x] Reconcile abandoned idempotency reservations safely (bounded dry-run-first CLI; SQLite + live PostgreSQL regressions; see docs/IDEMPOTENCY_MAINTENANCE.md).
-- [ ] Benchmark large-ledger readiness cost and sustained deployment load.
+- [x] Benchmark large-ledger readiness cost (cold 697.866 ms; warm helper P99 3.941 ms; docs/validation/launch-v1-ledger.json). Sustained target-deployment load remains open (Gate B).
 See docs/HARDENING_2026_09.md for receipts and production no-go conditions.
 
 ### Launch-v1 measured blocker

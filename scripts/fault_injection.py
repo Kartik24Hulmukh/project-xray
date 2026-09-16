@@ -84,6 +84,28 @@ def main():
             out['cases']['out_of_order_idempotent_replay'] = {
                 'statuses': {str(k): sum(1 for s, _ in pr if s == k) for k in set(s for s, _ in pr)},
                 'unique_ids': len({i for s, i in pr if s == 201 and i})}
+            # Kill without graceful shutdown, then recover the SAME persistent DB.
+            # Harness restarts explicitly; this does not certify deployment auto-restart.
+            expected_ids = {i for s, i in pr if s == 201 and i}
+            proc.kill()
+            proc.wait(timeout=5)
+            killed_rc = proc.returncode
+            restart_at = time.monotonic()
+            proc = subprocess.Popen([sys.executable, 'app/server.py'], cwd=ROOT, env=env,
+                                    stdout=log, stderr=subprocess.STDOUT)
+            while time.monotonic() - restart_at < 10:
+                if proc.poll() is not None or get('/ready', timeout=.25)[0] == 200:
+                    break
+                time.sleep(.05)  # bounded readiness polling, not a recovery assertion
+            replay_status, replay_id = post(0)
+            out['process_kill_recovery'] = {
+                'signal': 'SIGKILL', 'exit_code': killed_rc,
+                'restart_owner': 'test harness (not deployment supervisor)',
+                'recovery_ms': round((time.monotonic() - restart_at) * 1000, 2),
+                'replay_status': replay_status,
+                'same_committed_id': replay_id in expected_ids,
+                'pass': killed_rc == -9 and replay_status == 201 and replay_id in expected_ids,
+            }
             out['ready_after'] = get('/ready')[0]
             out['live_after'] = get('/livez')[0]
             proc_alive = proc.poll() is None
@@ -93,7 +115,7 @@ def main():
             out['no_5xx'] = not any(s.startswith('5') for s in statuses)
             log.flush()
             out['tracebacks_in_log'] = Path(d, 'server.log').read_text().count('Traceback (most recent call last)')
-            out['all_pass'] = (out['tracebacks_in_log'] == 0 and out['live_after'] == 200
+            out['all_pass'] = (out['process_kill_recovery']['pass'] and out['tracebacks_in_log'] == 0 and out['live_after'] == 200
                                and set(out['cases']['out_of_order_idempotent_replay']['statuses']) <= {'201', '409'} and proc_alive and out['no_5xx'] and out['ready_after'] == 200
                                and out['cases']['slowloris_60_held_sockets']['served_while_held']
                                and out['cases']['after_30_mid_body_drops']['all_200']

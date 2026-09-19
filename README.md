@@ -7,9 +7,9 @@ Open-source evidence-workflow reference for Indian public-infrastructure researc
 | Field | Value |
 |---|---|
 | Preview mode | **Controlled synthetic technical preview** |
-| Code package | v0.4.1 — repository-verified controlled-beta; production gates pending |
+| Code package | v0.4.8 — repository-verified controlled synthetic preview; production gates pending (`ops/production-readiness.yaml` 0/10) |
 | Operator readiness ledger | `controlled_synthetic_preview` / alpha gates in `ops/production-readiness.yaml` |
-| Package tag | `v0.4.1-synthetic-preview` |
+| Package tag | `v0.4.8-synthetic-preview-rc1` (see `RELEASE_NOTES.md`, `package.json`) |
 | Licence | Apache-2.0 |
 
 ## Honest scope

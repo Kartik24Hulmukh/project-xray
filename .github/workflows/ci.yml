@@ -41,7 +41,7 @@ jobs:
           python3 scripts/rate_limit_shock.py
       - name: Retain local launch gate receipts
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: launch-hardening-evidence
           path: |
@@ -156,7 +156,7 @@ jobs:
           PY
       - name: Retain PostgreSQL version and test evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: postgres-evidence
           path: artifacts/postgres/

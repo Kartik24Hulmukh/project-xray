@@ -33,7 +33,8 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# 105 distinct real-world human personas across 7 core archetypes
+# 120 distinct real-world human personas across 8 core archetypes (session 15: added mobile_field_monitor,
+# closing the gap between the module docstring, which already promised mobile field monitors, and ARCHETYPES)
 ARCHETYPES = [
     ("investigative_journalist", 15),
     ("rti_activist", 15),
@@ -42,6 +43,7 @@ ARCHETYPES = [
     ("principal_systems_architect", 15),
     ("red_team_chaos_lead", 15),
     ("citizen_watchdog", 15),
+    ("mobile_field_monitor", 15),
 ]
 
 def generate_personas() -> list[dict]:

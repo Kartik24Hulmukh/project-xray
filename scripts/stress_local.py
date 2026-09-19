@@ -23,15 +23,34 @@ def launch_gates(results):
     """Fail closed: old safety_pass permitted 503 and ignored resource ceilings."""
     allowed = {'baseline_reads': {'200'}, '100_client_reads': {'200'},
                '100_client_writes': {'201'}, '100_client_idempotency_race': {'201', '409'}}
-    capacity = len(results['phases']) == 4 and all(
-        p['name'] in allowed and set(p['statuses']) <= allowed[p['name']]
-        and sum(p['statuses'].values()) == p['requests'] for p in results['phases'])
+    results = results if isinstance(results, dict) else {}
+    phases = results.get('phases')
+    def valid_phase(p):
+        if (not isinstance(p, dict) or not isinstance(p.get('name'), str)
+                or p['name'] not in allowed):
+            return False
+        statuses, count = p.get('statuses'), p.get('requests')
+        return (type(count) is int and count > 0 and isinstance(statuses, dict)
+                and bool(statuses) and set(statuses) <= allowed[p['name']]
+                and all(type(v) is int and v > 0 for v in statuses.values())
+                and sum(statuses.values()) == count)
+    capacity = (isinstance(phases, list) and len(phases) == len(allowed)
+                and all(valid_phase(p) for p in phases)
+                and {p['name'] for p in phases} == set(allowed))
     rss = results.get('server_peak_rss_kb')
+    def recovered(key):
+        probe = results.get(key)
+        if not isinstance(probe, dict):
+            return False
+        latency = probe.get('latency_ms')
+        return (probe.get('status') == 200 and type(latency) in (int, float)
+                and 0 <= latency < 200)
     return dict(statuses_pass=capacity,
-                ram_pass=isinstance(rss, int) and 0 < rss <= 128 * 1024,
-                recovery_pass=all(results.get(k, {}).get('status') == 200
-                    and 0 <= results[k]['latency_ms'] < 200 for k in ('health_recovery', 'ready_recovery')),
-                process_pass=results.get('server_alive') is True and results.get('tracebacks_in_log') == 0)
+                ram_pass=type(rss) is int and 0 < rss <= 128 * 1024,
+                recovery_pass=all(recovered(k) for k in ('health_recovery', 'ready_recovery')),
+                process_pass=results.get('server_alive') is True
+                and type(results.get('tracebacks_in_log')) is int
+                and results['tracebacks_in_log'] == 0)
 
 
 def main():

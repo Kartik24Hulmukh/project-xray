@@ -1,0 +1,86 @@
+{
+  "service": "project-xray",
+  "scope": "local synthetic SQLite; no external target",
+  "complete": true,
+  "all_gates_pass": true,
+  "production_ready": false,
+  "gates": {
+    "unit_integration": {
+      "cmd": [
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests"
+      ],
+      "rc": 0,
+      "timed_out": false,
+      "seconds": 21.71,
+      "tail": " <HTTPError 403: 'Forbidden'>\n  _warnings.warn(self.warn_message, ResourceWarning)\n./usr/local/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 401: 'Unauthorized'>\n  _warnings.warn(self.warn_message, ResourceWarning)\n................................................................................/usr/local/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 500: 'Internal Server Error'>\n  _warnings.warn(self.warn_message, ResourceWarning)\n..............................................................................................................sssssssssssssssssss............/usr/local/lib/python3.14/_weakrefset.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7494b44d3e20>\n  self.data.add(ref(item, self._remove))\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n/usr/local/lib/python3.14/_weakrefset.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7494b45c4a90>\n  self.data.add(ref(item, self._remove))\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n/usr/local/lib/python3.14/_weakrefset.py:46: ResourceWarning: unclosed database in <sqlite3.Connection object at 0x7494b25232e0>\n  self.data.add(ref(item, self._remove))\nResourceWarning: Enable tracemalloc to get the object allocation traceback\n..........................Release-claim guard FAILED CLOSED: production-readiness ledger contains no checks\n.Release-claim guard FAILED CLOSED: [Errno 2] No such file or directory: '/home/daytona/project-xray/ops/does-not-exist.yaml'\n............................../usr/local/lib/python3.14/tempfile.py:484: ResourceWarning: Implicitly cleaning up <HTTPError 500: 'Internal Server Error'>\n  _warnings.warn(self.warn_message, ResourceWarning)\n.............................................................\n----------------------------------------------------------------------\nRan 371 tests in 21.298s\n\nOK (skipped=19)",
+      "tests_run": 371,
+      "tests_skipped": 19
+    },
+    "stress_100_clients": {
+      "cmd": [
+        "scripts/stress_local.py",
+        "--requests",
+        "20000",
+        "--output",
+        "/home/daytona/project-xray/docs/validation/session10/validation-stress.json"
+      ],
+      "rc": 0,
+      "timed_out": false,
+      "seconds": 25.51,
+      "tail": "l synthetic SQLite; rate limits raised for throughput; no external services\",\n  \"worker_limit\": 64,\n  \"exec_parallelism\": \"default\",\n  \"phases\": [\n    {\n      \"name\": \"baseline_reads\",\n      \"clients\": 1,\n      \"requests\": 100,\n      \"seconds\": 0.146,\n      \"requests_per_second\": 684.09,\n      \"p50_ms\": 1.25,\n      \"p95_ms\": 2.46,\n      \"p99_ms\": 2.79,\n      \"statuses\": {\n        \"200\": 100\n      }\n    },\n    {\n      \"name\": \"100_client_reads\",\n      \"clients\": 100,\n      \"requests\": 20000,\n      \"seconds\": 23.697,\n      \"requests_per_second\": 843.99,\n      \"p50_ms\": 106.86,\n      \"p95_ms\": 189.16,\n      \"p99_ms\": 261.93,\n      \"statuses\": {\n        \"200\": 20000\n      }\n    },\n    {\n      \"name\": \"100_client_writes\",\n      \"clients\": 100,\n      \"requests\": 300,\n      \"seconds\": 0.683,\n      \"requests_per_second\": 438.94,\n      \"p50_ms\": 203.7,\n      \"p95_ms\": 268.67,\n      \"p99_ms\": 289.35,\n      \"statuses\": {\n        \"201\": 300\n      }\n    },\n    {\n      \"name\": \"100_client_idempotency_race\",\n      \"clients\": 100,\n      \"requests\": 100,\n      \"seconds\": 0.175,\n      \"requests_per_second\": 572.75,\n      \"p50_ms\": 82.21,\n      \"p95_ms\": 139.42,\n      \"p99_ms\": 142.36,\n      \"statuses\": {\n        \"201\": 97,\n        \"409\": 3\n      }\n    }\n  ],\n  \"server_baseline_rss_kb\": 31936,\n  \"idempotency_unique_success_ids\": 1,\n  \"health_recovery\": {\n    \"status\": 200,\n    \"latency_ms\": 1.024\n  },\n  \"ready_recovery\": {\n    \"status\": 200,\n    \"latency_ms\": 4.922\n  },\n  \"readiness_after_load\": 200,\n  \"server_alive\": true,\n  \"tracebacks_in_log\": 0,\n  \"server_peak_rss_kb\": 55648,\n  \"server_threads\": 1,\n  \"integrity_check\": \"ok\",\n  \"audit\": {\n    \"events\": 301,\n    \"head\": \"891d7506c8f9fbc672a1b7f8a6cbff314d8d5ad235d606b1c1d3be56471c92aa\"\n  },\n  \"persisted_projects\": 301,\n  \"expected_projects\": 301,\n  \"safety_pass\": true,\n  \"launch_gates\": {\n    \"statuses_pass\": true,\n    \"ram_pass\": true,\n    \"recovery_pass\": true,\n    \"process_pass\": true\n  },\n  \"zero_rejection_capacity_pass\": true\n}"
+    },
+    "fault_injection": {
+      "cmd": [
+        "scripts/fault_injection.py",
+        "--seed",
+        "20260913",
+        "--output",
+        "/home/daytona/project-xray/docs/validation/session10/validation-fault.json"
+      ],
+      "rc": 0,
+      "timed_out": false,
+      "seconds": 2.09,
+      "tail": "{\n \"seed\": 20260913,\n \"exec_parallelism\": \"4\",\n \"cases\": {\n  \"slowloris_60_held_sockets\": {\n   \"statuses\": {\n    \"200\": 200\n   },\n   \"p50_ms\": 14.98,\n   \"p95_ms\": 48.18,\n   \"served_while_held\": true\n  },\n  \"after_30_mid_body_drops\": {\n   \"statuses\": {\n    \"200\": 300\n   },\n   \"all_200\": true\n  },\n  \"out_of_order_idempotent_replay\": {\n   \"statuses\": {\n    \"201\": 48,\n    \"409\": 2\n   },\n   \"unique_ids\": 1\n  }\n },\n \"process_kill_recovery\": {\n  \"signal\": \"SIGKILL\",\n  \"exit_code\": -9,\n  \"restart_owner\": \"test harness (not deployment supervisor)\",\n  \"recovery_ms\": 108.95,\n  \"replay_status\": 201,\n  \"same_committed_id\": true,\n  \"pass\": true\n },\n \"ready_after\": 200,\n \"live_after\": 200,\n \"server_alive\": true,\n \"no_5xx\": true,\n \"tracebacks_in_log\": 0,\n \"all_pass\": true\n}"
+    },
+    "redteam_fuzz": {
+      "cmd": [
+        "scripts/redteam_fuzz.py"
+      ],
+      "rc": 0,
+      "timed_out": false,
+      "seconds": 0.92,
+      "tail": "{\n \"scope\": \"local synthetic red-team fuzz\",\n \"cases\": [\n  {\n   \"case\": \"malformed_json\",\n   \"status\": 400,\n   \"allowed\": [\n    400\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"empty_body\",\n   \"status\": 400,\n   \"allowed\": [\n    400\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"huge_payload_2mb\",\n   \"status\": 400,\n   \"allowed\": [\n    400,\n    413\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"no_auth_write\",\n   \"status\": 401,\n   \"allowed\": [\n    401,\n    403\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"bad_token\",\n   \"status\": 401,\n   \"allowed\": [\n    401,\n    403\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"traversal_dotdot\",\n   \"status\": 404,\n   \"allowed\": [\n    400,\n    403,\n    404\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"traversal_encoded\",\n   \"status\": 404,\n   \"allowed\": [\n    400,\n    403,\n    404\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"null_byte_path\",\n   \"status\": 404,\n   \"allowed\": [\n    400,\n    403,\n    404\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"unknown_method\",\n   \"status\": 501,\n   \"allowed\": [\n    400,\n    404,\n    405,\n    501\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"unicode_rtl_name\",\n   \"status\": 400,\n   \"allowed\": [\n    201,\n    400\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"nested_bomb\",\n   \"status\": 400,\n   \"allowed\": [\n    400,\n    413\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"type_confusion\",\n   \"status\": 400,\n   \"allowed\": [\n    400\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"sql_meta_in_name\",\n   \"status\": 400,\n   \"allowed\": [\n    201,\n    400\n   ],\n   \"pass\": true\n  },\n  {\n   \"case\": \"idem_key_overlong\",\n   \"status\": 400,\n   \"allowed\": [\n    201,\n    400\n   ],\n   \"pass\": true\n  }\n ],\n \"health_after_fuzz\": 200,\n \"no_5xx_or_crash\": true,\n \"all_pass\": true\n}"
+    },
+    "rate_limit_shock": {
+      "cmd": [
+        "scripts/rate_limit_shock.py"
+      ],
+      "rc": 0,
+      "timed_out": false,
+      "seconds": 0.85,
+      "tail": "{\n  \"scope\": \"local synthetic SQLite, limit=1/minute, 100 clients, 200 reads\",\n  \"statuses\": {\n    \"200\": 1,\n    \"429\": 199\n  },\n  \"probes\": [\n    {\n      \"status\": 200,\n      \"retry_after\": null,\n      \"latency_ms\": 0.6867190822958946\n    },\n    {\n      \"status\": 200,\n      \"retry_after\": null,\n      \"latency_ms\": 1.345810480415821\n    }\n  ],\n  \"tracebacks\": 0,\n  \"server_alive\": true,\n  \"retry_after_valid\": true,\n  \"all_pass\": true\n}"
+    },
+    "release_claim_guard": {
+      "cmd": [
+        "scripts/check_release_claims.py"
+      ],
+      "rc": 0,
+      "timed_out": false,
+      "seconds": 0.05,
+      "tail": "Readiness ledger: 0/10 passed with evidence\nRelease-claim guard: PASS - no unsupported maturity claim found"
+    },
+    "smoke_e2e": {
+      "cmd": [
+        "scripts/smoke_e2e.py"
+      ],
+      "rc": 0,
+      "timed_out": false,
+      "seconds": 2.02,
+      "tail": "{\"status\": \"ok\", \"project_id\": \"prj_fc35e63184344c98\", \"restart\": \"passed\", \"restore\": \"passed\", \"report\": \"passed\", \"rti\": \"passed\", \"capsule\": \"passed\", \"audit\": \"passed\", \"static_assets\": \"passed\"}"
+    }
+  }
+}

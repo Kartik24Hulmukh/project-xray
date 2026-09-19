@@ -1,0 +1,8 @@
+{
+  "scripts/session8_validate.py": "c13f7a8895768478abb330627e9d0a0abf185e05ae77099ea6e05440b79190aa",
+  "scripts/stress_local.py": "51156a0e221fab84825e75c20e062824bb5194f42f77c3af77f6532a4f8409c4",
+  "scripts/fault_injection.py": "6d32e8f3335f64dd377a84811e11c8d1245e31499a037c3ca17d3e84a997836f",
+  "tests/test_launch_receipt_gates.py": "a841bcdc92dd19569d3d7ad23d408bb0bdf55e26f179f24ca448e80e8ad397e7",
+  "tests/test_validation_orchestrator.py": "b4807967b112fd686d04804358e7cc80fbd35d6fd0443d1e832596c816ce8f06",
+  ".github/workflows/ci.yml": "33fec57e06a285bc31c02a2921db896f14b6d2f0a4e3b639abc0b342b44d1a4a"
+}

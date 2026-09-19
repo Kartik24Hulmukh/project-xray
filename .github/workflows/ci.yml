@@ -33,8 +33,8 @@ jobs:
           python3 scripts/check_grype_exceptions.py
       - name: Synthetic production rehearsal
         run: python3 scripts/rehearse_production.py
-      - name: Local synthetic load regression
-        run: python3 scripts/stress_local.py
+      - name: Bounded local launch gates (20k reads at 100 clients, explicit target skips)
+        run: python3 scripts/session8_validate.py
       - name: Seeded chaos and actual rate-limit shock
         run: |
           python3 scripts/fault_injection.py --seed 20260915

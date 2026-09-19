@@ -28,6 +28,9 @@ APPROVED_CVES = {
     'CVE-2026-78408',
     'CVE-2026-78409',
     'CVE-2026-78410',
+    # Added 2026-09-19: zlib 1.3.2-r0, no fixed apk available. Exposure analysis:
+    # docs/security/risk-acceptance-2026-09-19.md. Founder countersign via PR #52 review.
+    'CVE-2026-85091',
 }
 EXPIRY_RE = re.compile(r'#\s*expires:\s*(\d{4}-\d{2}-\d{2})')
 CVE_RE = re.compile(r'CVE-\d{4}-\d+')

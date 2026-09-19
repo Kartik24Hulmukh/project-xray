@@ -1,0 +1,8 @@
+{
+  "head": "09947b77ab4c89ea7b4b916f0d1d403236294e17",
+  "attachment_sha256": "586a89faa309bad24034906540faea53fa0be5ee0ae50caa313ab61855d9796e",
+  "unit_summary": "Ran 364 tests in 22.339s; OK (skipped=19)",
+  "unit_log_sha256": "9a9ea007c14791a71f21619db4abbc0892c0ad85ec2b822893dd0229ea9902e6",
+  "scope": "local synthetic SQLite; no production claim",
+  "baseline_source_dirty": false
+}

@@ -43,3 +43,22 @@ class LaunchGateTests(unittest.TestCase):
         self.assertFalse(stress.launch_gates(self.r)['statuses_pass'])
         self.r['phases'].pop()
         self.assertFalse(stress.launch_gates(self.r)['statuses_pass'])
+
+    def test_duplicate_phase_cannot_replace_missing_phase(self):
+        self.r['phases'][1] = copy.deepcopy(self.r['phases'][0])
+        self.assertFalse(stress.launch_gates(self.r)['statuses_pass'])
+
+    def test_zero_and_negative_counts_fail(self):
+        for count in (0, -1, True):
+            with self.subTest(count=count):
+                self.r['phases'][0].update(requests=count, statuses={'200': count})
+                self.assertFalse(stress.launch_gates(self.r)['statuses_pass'])
+
+    def test_missing_and_malformed_receipts_fail_closed(self):
+        for receipt in ({}, {'phases': None}, {'phases': [None]}, {'phases': [{'name': []}] * 4}, None):
+            with self.subTest(receipt=receipt):
+                self.assertFalse(all(stress.launch_gates(receipt).values()))
+
+    def test_boolean_rss_is_not_a_measurement(self):
+        self.r['server_peak_rss_kb'] = True
+        self.assertFalse(stress.launch_gates(self.r)['ram_pass'])

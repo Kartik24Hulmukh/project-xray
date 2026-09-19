@@ -1,6 +1,8 @@
 # ---- Stage 1: builder ----
-# Official Python 3.13 Alpine image for building wheels
-FROM python:3.13-alpine AS builder
+# Official Python 3.14 Alpine image for building wheels.
+# 2026-09-19: bumped from 3.13-alpine — grype flagged CVE-2026-82049 (High) in
+# CPython 3.13.15, fixed in 3.14.0b1+. Unit suite (371 tests) verified on 3.14.
+FROM python:3.14-alpine AS builder
 
 WORKDIR /build
 
@@ -23,7 +25,7 @@ RUN python -m venv /venv \
 
 # ---- Stage 2: runtime ----
 # Minimal Alpine runtime — only runtime shared libraries, no compilers
-FROM python:3.13-alpine
+FROM python:3.14-alpine
 
 WORKDIR /app
 

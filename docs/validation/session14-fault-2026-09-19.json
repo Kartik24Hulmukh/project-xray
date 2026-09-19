@@ -1,0 +1,41 @@
+{
+ "seed": 20260913,
+ "exec_parallelism": "4",
+ "cases": {
+  "slowloris_60_held_sockets": {
+   "statuses": {
+    "200": 200
+   },
+   "p50_ms": 15.67,
+   "p95_ms": 41.45,
+   "served_while_held": true
+  },
+  "after_30_mid_body_drops": {
+   "statuses": {
+    "200": 300
+   },
+   "all_200": true
+  },
+  "out_of_order_idempotent_replay": {
+   "statuses": {
+    "201": 50
+   },
+   "unique_ids": 1
+  }
+ },
+ "process_kill_recovery": {
+  "signal": "SIGKILL",
+  "exit_code": -9,
+  "restart_owner": "test harness (not deployment supervisor)",
+  "recovery_ms": 105.74,
+  "replay_status": 201,
+  "same_committed_id": true,
+  "pass": true
+ },
+ "ready_after": 200,
+ "live_after": 200,
+ "server_alive": true,
+ "no_5xx": true,
+ "tracebacks_in_log": 0,
+ "all_pass": true
+}

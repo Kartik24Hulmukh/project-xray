@@ -13,7 +13,7 @@ botocore>=1.43.93,<2
 # pytest>=8.0  # Alternative test runner, not required (unittest is used)
 
 # ALB ES256 identity verification for the trusted gateway.
-PyJWT[crypto]>=2.13.0,<3
+PyJWT[crypto]>=2.14.0,<3
 
 # Opt-in bounded OTLP/HTTP tracing (XRAY_OTEL_ENABLED=1)
 opentelemetry-sdk==1.37.0

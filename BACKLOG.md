@@ -1,7 +1,7 @@
 # Prioritized backlog
 
 ## P0 — must ship
-- [ ] Evidence-state taxonomy enforced server-side.
+- [x] Evidence-state taxonomy enforced server-side (session 17: closed set at ingest, degrade-on-read, fail-closed publish gate, GET /api/evidence-states).
 - [ ] Human review gate before public claim status.
 - [ ] Source URL, publisher, retrieval time, passage/page and hash fields.
 - [ ] Projects, claims, documents, gaps, responses and audit events persisted.

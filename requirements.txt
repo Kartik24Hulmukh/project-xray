@@ -16,5 +16,5 @@ botocore>=1.43.93,<2
 PyJWT[crypto]>=2.13.0,<3
 
 # Opt-in bounded OTLP/HTTP tracing (XRAY_OTEL_ENABLED=1)
-opentelemetry-sdk==1.37.0
+opentelemetry-sdk==1.44.0
 opentelemetry-exporter-otlp-proto-http==1.37.0

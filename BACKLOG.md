@@ -8,7 +8,7 @@
 - [ ] Public dossier with verified/disputed/missing distinctions.
 - [ ] Evidence report and RTI draft export.
 - [ ] Authentication for reviewer/admin writes in deployed mode.
-- [ ] Upload type/size validation and malware-scanning integration point.
+- [x] Upload type/size validation and malware-scanning integration point. (Session 17: `validate_document_metadata` enforces strict int size, inert basenames, extension↔media-type agreement and typed source_id; scanning integration point is the pre-existing quarantine → scanner-role `/scan` gate.)
 - [ ] Database backup and tested restore.
 - [ ] HTTPS deployment, security headers, structured logs and health checks.
 - [ ] Factual review checklist for launch cases.

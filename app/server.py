@@ -509,6 +509,54 @@ def clean(value, limit, required=False):
     return value
 
 
+# Upload boundary.  Document registration is the only path by which bytes can
+# enter quarantine, so every field is type-checked *before* it touches SQL or
+# storage: JSON booleans/floats are not sizes, filenames are inert basenames
+# (no separators, traversal, control or bidi characters) and the extension must
+# agree with the declared media type, so a scanner that dispatches on either
+# one sees the same file class.  Anything else is a 400, never a 500.
+UPLOAD_MEDIA_EXTENSIONS = {
+    'application/pdf': ('.pdf',),
+    'text/plain': ('.txt',),
+    'text/csv': ('.csv',),
+    'application/json': ('.json',),
+    'image/png': ('.png',),
+    'image/jpeg': ('.jpg', '.jpeg'),
+}
+UPLOAD_MAX_BYTES = MAX
+_FILENAME_FORBIDDEN_RE = re.compile(r'[\x00-\x1f\x7f/\\:*?"<>|\u202a-\u202e\u2066-\u2069]')
+
+
+def validate_document_metadata(data):
+    if not isinstance(data, dict):
+        raise ValueError('body must be a JSON object')
+    sha256 = clean(data.get('sha256', ''), 64, True).lower()
+    if not re.fullmatch(r'[a-f0-9]{64}', sha256):
+        raise ValueError('sha256 must be 64 hex characters')
+    media = clean(data.get('media_type', ''), 100, True)
+    if media not in UPLOAD_MEDIA_EXTENSIONS:
+        raise ValueError('unsupported media_type')
+    size = data.get('size_bytes')
+    if type(size) is not int or not 1 <= size <= UPLOAD_MAX_BYTES:
+        raise ValueError('size_bytes must be an integer between 1 and %d' % UPLOAD_MAX_BYTES)
+    raw_name = data.get('filename', '')
+    if not isinstance(raw_name, str):
+        raise ValueError('expected string')
+    if _FILENAME_FORBIDDEN_RE.search(raw_name):
+        raise ValueError('filename must be a plain basename')
+    filename = clean(raw_name, 255, True)
+    stem, dot, ext = filename.rpartition('.')
+    if not dot or not stem.strip(' .') or filename.startswith('.'):
+        raise ValueError('filename requires a name and extension')
+    if '.' + ext.lower() not in UPLOAD_MEDIA_EXTENSIONS[media]:
+        raise ValueError('filename extension does not match media_type')
+    source_id = data.get('source_id') or None
+    if source_id is not None and not (isinstance(source_id, str) and valid_id(source_id, 'src')):
+        raise ValueError('source_id must be a source identifier')
+    storage_uri = clean(data.get('storage_uri', ''), 1000)
+    return {'sha256': sha256, 'media_type': media, 'size_bytes': size, 'filename': filename, 'source_id': source_id, 'storage_uri': storage_uri}
+
+
 def valid_id(value, prefix=None):
     return bool(ID_RE.fullmatch(value)) and (not prefix or value.startswith(prefix + '_'))
 
@@ -1520,17 +1568,12 @@ class H(BaseHTTPRequestHandler):
                 if kind == 'documents' and len(segments) == 4:
                     if role != 'admin':
                         return self.out({'error': 'admin required'}, 403)
-                    sha256 = clean(data.get('sha256', ''), 64, True).lower()
-                    media = clean(data.get('media_type', ''), 100, True)
-                    size = int(data.get('size_bytes', -1))
-                    source_id = data.get('source_id') or None
-                    storage_uri = clean(data.get('storage_uri', ''), 1000)
-                    if (
-                        not re.fullmatch(r'[a-f0-9]{64}', sha256)
-                        or media not in {'application/pdf', 'text/plain', 'text/csv', 'application/json', 'image/png', 'image/jpeg'}
-                        or not 0 <= size <= MAX
-                    ):
-                        return self.out({'error': 'invalid document metadata'}, 400)
+                    try:
+                        meta = validate_document_metadata(data)
+                    except ValueError as exc:
+                        return self.out({'error': 'invalid document metadata', 'detail': str(exc)}, 400)
+                    sha256, media, size = meta['sha256'], meta['media_type'], meta['size_bytes']
+                    source_id, storage_uri = meta['source_id'], meta['storage_uri']
                     if source_id and not source(c, source_id, project_id):
                         return self.out({'error': 'source not found'}, 400)
                     if ENV == 'production':
@@ -1556,7 +1599,7 @@ class H(BaseHTTPRequestHandler):
                             document_id,
                             project_id,
                             source_id,
-                            clean(data.get('filename', ''), 255, True),
+                            meta['filename'],
                             media,
                             size,
                             sha256,

@@ -16,6 +16,8 @@ Operational baselines enforced:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -59,6 +61,52 @@ def generate_personas() -> list[dict]:
             })
             pid += 1
     return personas
+
+
+def _read_proc_status_kb(pid: int, key: str) -> int:
+    """Return the value of ``key`` (e.g. VmRSS, VmHWM) from /proc/<pid>/status in KiB, or 0."""
+    try:
+        with open(f"/proc/{pid}/status", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith(key + ":"):
+                    return int(line.split()[1])
+    except Exception:
+        pass
+    return 0
+
+
+def get_current_rss_kb(pid: int) -> int:
+    """Resident set size right now (VmRSS). Used for the RAM floor and the settled value."""
+    return _read_proc_status_kb(pid, "VmRSS")
+
+
+class RssSampler(threading.Thread):
+    """Samples VmRSS of ``pid`` every ``interval`` seconds until stopped.
+
+    Gives an observed floor/ceiling for the load window itself, independent of the
+    kernel high-water mark, so a RAM *floor* is measured rather than inferred.
+    """
+
+    def __init__(self, pid: int, interval: float = 0.01):
+        super().__init__(name="rss-sampler", daemon=True)
+        self.pid = pid
+        self.interval = interval
+        self.samples_kb: list[int] = []
+        self._stop = threading.Event()
+
+    def run(self) -> None:
+        while not self._stop.is_set():
+            value = get_current_rss_kb(self.pid)
+            if value > 0:
+                self.samples_kb.append(value)
+            self._stop.wait(self.interval)
+
+    def stop(self) -> dict:
+        self._stop.set()
+        self.join(timeout=2.0)
+        if not self.samples_kb:
+            return {"samples": 0, "min_kb": 0, "max_kb": 0}
+        return {"samples": len(self.samples_kb), "min_kb": min(self.samples_kb), "max_kb": max(self.samples_kb)}
 
 
 def get_peak_rss_kb(pid: int) -> int:
@@ -245,6 +293,11 @@ def main():
             proc.kill()
             raise RuntimeError("Server failed to reach ready state before torture test")
 
+        # RAM floor: resident set right after readiness, before any load.
+        rss_floor_kb = get_current_rss_kb(proc.pid)
+        sampler = RssSampler(proc.pid)
+        sampler.start()
+
         # Seed initial project for readers
         seed_req = urllib.request.Request(
             f"{base_url}/api/projects",
@@ -280,6 +333,7 @@ def main():
 
         torture_duration = time.perf_counter() - t_torture_start
         peak_rss_kb = get_peak_rss_kb(proc.pid)
+        sampled = sampler.stop()
 
         # Post-torture latency recovery verification
         rec_t0 = time.perf_counter()
@@ -291,6 +345,10 @@ def main():
         with urllib.request.urlopen(f"{base_url}/readyz", timeout=2.0) as r:
             ready_rec_ms = (time.perf_counter() - rec_t1) * 1000.0
             ready_rec_status = r.status
+
+        # RAM settled: resident set after the recovery probes, before shutdown.
+        rss_settled_kb = get_current_rss_kb(proc.pid)
+        rss_growth_kb = max(0, rss_settled_kb - rss_floor_kb)
 
         server_alive = (proc.poll() is None)
         proc.terminate()
@@ -317,6 +375,14 @@ def main():
             "tracebacks_in_log": tracebacks,
             "peak_rss_kb": peak_rss_kb,
             "peak_rss_bounded_128mb": peak_rss_kb <= 128 * 1024,
+            "rss_floor_kb": rss_floor_kb,
+            "rss_ceiling_kb": peak_rss_kb,
+            "rss_settled_kb": rss_settled_kb,
+            "rss_growth_after_recovery_kb": rss_growth_kb,
+            "rss_sampled_min_kb": sampled["min_kb"],
+            "rss_sampled_max_kb": sampled["max_kb"],
+            "rss_samples": sampled["samples"],
+            "rss_settled_bounded_128mb": rss_settled_kb <= 128 * 1024,
             "health_recovery_ms": health_rec_ms,
             "health_recovery_sub_200ms": (health_rec_status == 200 and health_rec_ms < 200.0),
             "ready_recovery_ms": ready_rec_ms,
@@ -326,12 +392,13 @@ def main():
         all_baselines_pass = all([
             operational_baselines["zero_unhandled_panics"],
             operational_baselines["peak_rss_bounded_128mb"],
+            operational_baselines["rss_settled_bounded_128mb"],
             operational_baselines["health_recovery_sub_200ms"],
             operational_baselines["ready_recovery_sub_200ms"],
         ])
 
         summary = {
-            "timestamp": "2026-09-19T19:00:00Z",
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "scope": "100-persona human torture under 100x concurrency",
             "seed": args.seed,
             "personas_emulated": len(personas),
@@ -359,6 +426,8 @@ def main():
         print(f"[*] Receipts written to {out_path}")
         print(f"[*] Summary: {len(personas)} personas, {len(all_latencies)} requests in {torture_duration:.2f}s ({summary['throughput_rps']} rps)")
         print(f"[*] Latency: P50={p50:.2f}ms, P95={p95:.2f}ms, P99={p99:.2f}ms | Peak RSS: {peak_rss_kb/1024:.1f} MiB")
+        print(f"[*] RAM floor={rss_floor_kb/1024:.1f} MiB, ceiling={peak_rss_kb/1024:.1f} MiB, settled={rss_settled_kb/1024:.1f} MiB "
+              f"(growth after recovery {rss_growth_kb/1024:.1f} MiB, {sampled['samples']} samples)")
         print(f"[*] Health recovery: {health_rec_ms:.2f}ms, Ready recovery: {ready_rec_ms:.2f}ms")
         print(f"[*] Operational baselines PASS: {all_baselines_pass}")
 

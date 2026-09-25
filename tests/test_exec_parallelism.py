@@ -133,6 +133,36 @@ class WalSwitchOnce(unittest.TestCase):
             self.assertEqual(_journal_mode(path), 'wal')
         database.reset_wal_cache()
 
+    def test_recreated_file_with_reused_inode_is_switched_to_wal(self):
+        # Root cause of a CI-only failure: a deleted database's (dev, inode)
+        # can be reused by the recreated file, so the identity cache claimed
+        # WAL for a fresh rollback-journal file. Force identical identities.
+        database.reset_wal_cache()
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'reuse.db')
+            with mock.patch.object(database, 'IS_POSTGRES', False), \
+                    mock.patch.object(database, '_wal_identity', lambda p: ('fixed', 1, 1)):
+                database.connect(path).close()
+                self.assertEqual(_journal_mode(path), 'wal')
+                os.remove(path)
+                database.connect(path).close()
+                self.assertEqual(_journal_mode(path), 'wal')
+        database.reset_wal_cache()
+
+    def test_header_probe_is_lock_free_and_exact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / 'hdr.db')
+            self.assertFalse(database._header_is_wal(path))  # missing file
+            conn = sqlite3.connect(path)
+            conn.execute('CREATE TABLE t(x)')
+            conn.commit()
+            conn.close()
+            self.assertFalse(database._header_is_wal(path))  # rollback journal
+            conn = sqlite3.connect(path)
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.close()
+            self.assertTrue(database._header_is_wal(path))
+
 
 if __name__ == '__main__':
     unittest.main()

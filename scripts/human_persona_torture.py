@@ -242,6 +242,9 @@ def main():
     parser.add_argument("--output", default="docs/validation/session14-human-torture-2026-09-19.json")
     parser.add_argument("--seed", type=int, default=20260919)
     parser.add_argument("--concurrency", type=int, default=100)
+    parser.add_argument("--waves", type=int, default=1,
+                        help="re-run the full persona set N times in the same server process; "
+                             "settled RSS is recorded after each wave to prove memory does not keep climbing")
     args = parser.parse_args()
 
     rng = random.Random(args.seed)
@@ -348,6 +351,32 @@ def main():
 
         # RAM settled: resident set after the recovery probes, before shutdown.
         rss_settled_kb = get_current_rss_kb(proc.pid)
+
+        # Extra waves in the SAME process: settled RSS after each wave must not keep climbing.
+        settled_per_wave_kb = [rss_settled_kb]
+        for wave in range(2, max(1, args.waves) + 1):
+            wave_t0 = time.perf_counter()
+            with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+                futures = [pool.submit(run_persona_action, base_url, p, token,
+                                       random.Random(args.seed + p["persona_id"] + wave * 100003))
+                           for p in personas]
+                for f in as_completed(futures):
+                    res = f.result()
+                    all_action_results.append(res)
+                    for act in res["actions"]:
+                        s_ = act["status"]
+                        status_counts[s_] = status_counts.get(s_, 0) + 1
+                        all_latencies.append(act["latency_ms"])
+            torture_duration += time.perf_counter() - wave_t0  # throughput covers every wave
+            with urllib.request.urlopen(f"{base_url}/readyz", timeout=2.0) as r:
+                ready_rec_status = r.status if r.status != 200 else ready_rec_status
+            settled_per_wave_kb.append(get_current_rss_kb(proc.pid))
+        peak_rss_kb = max(peak_rss_kb, get_peak_rss_kb(proc.pid))
+        rss_settled_kb = settled_per_wave_kb[-1]
+        # Leak gate: growth from the first settled value to the last is bounded (8 MiB) once
+        # the worker pool and allocator arenas are warm. Single-wave runs pass trivially.
+        rss_wave_growth_kb = settled_per_wave_kb[-1] - settled_per_wave_kb[0]
+        rss_no_unbounded_growth = rss_wave_growth_kb <= 8 * 1024
         rss_growth_kb = max(0, rss_settled_kb - rss_floor_kb)
 
         server_alive = (proc.poll() is None)
@@ -383,6 +412,10 @@ def main():
             "rss_sampled_max_kb": sampled["max_kb"],
             "rss_samples": sampled["samples"],
             "rss_settled_bounded_128mb": rss_settled_kb <= 128 * 1024,
+            "waves": max(1, args.waves),
+            "rss_settled_per_wave_kb": settled_per_wave_kb,
+            "rss_wave_growth_kb": rss_wave_growth_kb,
+            "rss_no_unbounded_growth": rss_no_unbounded_growth,
             "health_recovery_ms": health_rec_ms,
             "health_recovery_sub_200ms": (health_rec_status == 200 and health_rec_ms < 200.0),
             "ready_recovery_ms": ready_rec_ms,
@@ -393,6 +426,7 @@ def main():
             operational_baselines["zero_unhandled_panics"],
             operational_baselines["peak_rss_bounded_128mb"],
             operational_baselines["rss_settled_bounded_128mb"],
+            operational_baselines["rss_no_unbounded_growth"],
             operational_baselines["health_recovery_sub_200ms"],
             operational_baselines["ready_recovery_sub_200ms"],
         ])
@@ -428,6 +462,10 @@ def main():
         print(f"[*] Latency: P50={p50:.2f}ms, P95={p95:.2f}ms, P99={p99:.2f}ms | Peak RSS: {peak_rss_kb/1024:.1f} MiB")
         print(f"[*] RAM floor={rss_floor_kb/1024:.1f} MiB, ceiling={peak_rss_kb/1024:.1f} MiB, settled={rss_settled_kb/1024:.1f} MiB "
               f"(growth after recovery {rss_growth_kb/1024:.1f} MiB, {sampled['samples']} samples)")
+        if args.waves > 1:
+            print(f"[*] Waves={args.waves}: settled RSS per wave (MiB) = "
+                  f"{[round(v/1024,1) for v in settled_per_wave_kb]}, growth first->last {rss_wave_growth_kb/1024:.1f} MiB, "
+                  f"no_unbounded_growth={rss_no_unbounded_growth}")
         print(f"[*] Health recovery: {health_rec_ms:.2f}ms, Ready recovery: {ready_rec_ms:.2f}ms")
         print(f"[*] Operational baselines PASS: {all_baselines_pass}")
 

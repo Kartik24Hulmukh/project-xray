@@ -2,6 +2,7 @@
 
 ## P0 — must ship
 - [x] Evidence-state taxonomy enforced server-side (session 17: closed set at ingest, degrade-on-read, fail-closed publish gate, GET /api/evidence-states).
+- [x] Audit verify_segment streams in fixed 256-row pages instead of materialising the whole READYZ_VERIFY_BATCH slice; write-boundary control characters rejected (400, not silently stripped); gap status restricted to not_located/located/refused; non-string response source_id returns 400. (session 18)
 - [ ] Human review gate before public claim status.
 - [ ] Source URL, publisher, retrieval time, passage/page and hash fields.
 - [ ] Projects, claims, documents, gaps, responses and audit events persisted.

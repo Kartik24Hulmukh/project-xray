@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-09-25T19:01:00Z",
+  "scope": "session-18 boundary hardening re-verification (control-char rejection, gap status allowlist, streaming verify_segment) vs frozen baseline f69f6a2",
+  "seed": 20260925,
+  "personas_emulated": 120,
+  "concurrency": 100,
+  "total_requests": 285,
+  "duration_seconds": 0.321,
+  "throughput_rps": 888.8,
+  "latency_ms": {
+    "p50": 72.19,
+    "p95": 176.76,
+    "p99": 213.67,
+    "min": 0.74,
+    "max": 218.72
+  },
+  "status_distribution": {
+    "404": 75,
+    "200": 129,
+    "201": 45,
+    "503": 6,
+    "400": 15,
+    "401": 15
+  },
+  "operational_baselines": {
+    "zero_unhandled_panics": true,
+    "no_server_crash": true,
+    "tracebacks_in_log": 0,
+    "peak_rss_kb": 42028,
+    "peak_rss_bounded_128mb": true,
+    "health_recovery_ms": 0.7526911795139313,
+    "health_recovery_sub_200ms": true,
+    "ready_recovery_ms": 1.2670159339904785,
+    "ready_recovery_sub_200ms": true
+  },
+  "pass": true,
+  "note": "Single shared-sandbox run; deltas vs baseline are within run-to-run noise. RAM floor not measured separately. Frozen baseline (session 17, seed 20260925): 871.3 rps, P50 84.68, P95 165.03, P99 200.48, peak RSS 42.1 MiB, health recovery 0.60 ms, ready recovery 1.66 ms, 0 panics."
+}

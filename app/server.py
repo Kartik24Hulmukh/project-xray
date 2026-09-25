@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import collections
+import hmac
 import hashlib
 import ipaddress
 import functools
@@ -78,6 +80,75 @@ def _metric_inc(name, amount=1):
 def metrics_snapshot():
     with _METRICS_LOCK:
         return dict(METRICS)
+
+
+# --- Abuse read model (BACKLOG P1: rate limits + abuse dashboard) ---------
+# Bounded, privacy-preserving offender ledger.  Client identities are never
+# stored raw: they are HMAC-SHA256 digests (truncated) keyed with the token
+# pepper, so the dashboard can correlate repeat offenders without retaining
+# IP addresses.  The ledger is hard-capped (ABUSE_MAX_OFFENDERS) and evicts the
+# least-recently-seen entry, so hostile traffic cannot grow memory unboundedly.
+ABUSE_MAX_OFFENDERS = max(16, int(os.getenv('ABUSE_MAX_OFFENDERS', '1024')))
+ABUSE_TOP_N = 10
+_ABUSE_LOCK = threading.Lock()
+_ABUSE = collections.OrderedDict()
+_ABUSE_BY_CATEGORY = {}
+
+
+def _abuse_fingerprint(identity):
+    key = os.getenv('TOKEN_PEPPER', 'development-token-pepper-not-for-production').encode()
+    return hmac.new(key, str(identity).encode('utf-8', 'replace'), hashlib.sha256).hexdigest()[:16]
+
+
+def record_abuse(category, identity, when=None):
+    fp = _abuse_fingerprint(identity)
+    ts = int(when if when is not None else time.time())
+    with _ABUSE_LOCK:
+        entry = _ABUSE.pop(fp, None) or {'fingerprint': fp, 'total': 0, 'categories': {}, 'first_seen': ts}
+        entry['total'] += 1
+        entry['categories'][category] = entry['categories'].get(category, 0) + 1
+        entry['last_seen'] = ts
+        _ABUSE[fp] = entry
+        while len(_ABUSE) > ABUSE_MAX_OFFENDERS:
+            _ABUSE.popitem(last=False)
+        _ABUSE_BY_CATEGORY[category] = _ABUSE_BY_CATEGORY.get(category, 0) + 1
+
+
+def abuse_snapshot(top_n=ABUSE_TOP_N):
+    with _ABUSE_LOCK:
+        offenders = sorted(
+            (dict(e, categories=dict(e['categories'])) for e in _ABUSE.values()),
+            key=lambda e: (-e['total'], e['fingerprint']),
+        )[: max(0, int(top_n))]
+        by_category = dict(_ABUSE_BY_CATEGORY)
+        tracked = len(_ABUSE)
+    with _RATE_LOCK:
+        minute = int(time.time() // 60)
+        active = {}
+        for (category, _ident, m), count in RATE.items():
+            if m == minute:
+                active[category] = active.get(category, 0) + 1
+    return {
+        'limits_per_minute': {
+            'public_read': PUBLIC_READ_RATE_LIMIT,
+            'auth_read': AUTH_READ_RATE_LIMIT,
+            'write': WRITE_RATE_LIMIT,
+            'expensive_write': EXPENSIVE_WRITE_RATE_LIMIT,
+        },
+        'rate_limited_total': metrics_snapshot().get('rate_limited', 0),
+        'rate_limited_by_category': by_category,
+        'active_clients_current_minute': active,
+        'tracked_offenders': tracked,
+        'tracked_offenders_cap': ABUSE_MAX_OFFENDERS,
+        'top_offenders': offenders,
+        'identity_privacy': 'hmac-sha256-truncated; raw client addresses are never stored',
+    }
+
+
+def reset_abuse_state():
+    with _ABUSE_LOCK:
+        _ABUSE.clear()
+        _ABUSE_BY_CATEGORY.clear()
 
 TOKEN_PEPPER = os.getenv('TOKEN_PEPPER', 'development-token-pepper-not-for-production')
 AUDIT_KEY = os.getenv('AUDIT_HMAC_KEY', 'development-audit-key-not-for-production')
@@ -988,6 +1059,7 @@ class H(BaseHTTPRequestHandler):
             limited_now = slot >= limit
         if limited_now:
             _metric_inc('rate_limited')
+            record_abuse(category, self.client_identity())
             return True
         return False
 
@@ -1156,6 +1228,10 @@ class H(BaseHTTPRequestHandler):
                 return
             lines = '\n'.join(f'project_xray_{k}_total {v}' for k, v in metrics_snapshot().items()) + '\n'
             return self.text(lines, ctype='text/plain; version=0.0.4')
+        if path == '/api/admin/abuse':
+            if not self.principal(('admin',)):
+                return
+            return self.out(abuse_snapshot())
         if path == '/api/auth/tokens':
             if not self.principal(('admin',)):
                 return

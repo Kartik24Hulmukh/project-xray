@@ -120,6 +120,31 @@ def get_peak_rss_kb(pid: int) -> int:
     return 0
 
 
+def wait_ready(base_url: str, deadline_s: float = 10.0, proc=None) -> float:
+    """Poll /readyz until it answers 200 or the deadline passes.
+
+    Replaces the fixed time.sleep(0.4) + 30-try loop (which also spun without
+    delay on non-exception failures): returns as soon as the server is ready,
+    fails fast if the child process died, and backs off with a capped
+    exponential delay. Returns seconds waited.
+    """
+    t0 = time.perf_counter()
+    delay = 0.01
+    while True:
+        if proc is not None and proc.poll() is not None:
+            raise RuntimeError(f"server exited with code {proc.returncode} before ready")
+        try:
+            with urllib.request.urlopen(f"{base_url}/readyz", timeout=1.0) as resp:
+                if resp.status == 200:
+                    return time.perf_counter() - t0
+        except Exception:
+            pass
+        if time.perf_counter() - t0 > deadline_s:
+            raise RuntimeError("Server failed to reach ready state before torture test")
+        time.sleep(delay)
+        delay = min(delay * 2, 0.2)
+
+
 def run_persona_action(base_url: str, persona: dict, admin_token: str, rng: random.Random) -> dict:
     role = persona["role"]
     name = persona["name"]
@@ -275,23 +300,13 @@ def main():
         proc = subprocess.Popen([sys.executable, "app/server.py"], cwd=ROOT, env=env,
                                 stdout=log_file, stderr=log_file)
 
-        time.sleep(0.4)
-
-        # Baseline readiness probe
-        t_start = time.perf_counter()
-        ready = False
-        for _ in range(30):
-            try:
-                with urllib.request.urlopen(f"{base_url}/readyz", timeout=1.0) as resp:
-                    if resp.status == 200:
-                        ready = True
-                        break
-            except Exception:
-                time.sleep(0.1)
-
-        if not ready:
+        try:
+            startup_ready_s = wait_ready(base_url, deadline_s=10.0, proc=proc)
+        except RuntimeError:
             proc.kill()
-            raise RuntimeError("Server failed to reach ready state before torture test")
+            proc.wait(timeout=3)
+            log_file.close()
+            raise
 
         # RAM floor: resident set right after readiness, before any load.
         rss_floor_kb = get_current_rss_kb(proc.pid)
@@ -376,6 +391,7 @@ def main():
             "peak_rss_kb": peak_rss_kb,
             "peak_rss_bounded_128mb": peak_rss_kb <= 128 * 1024,
             "rss_floor_kb": rss_floor_kb,
+            "startup_ready_s": round(startup_ready_s, 3),
             "rss_ceiling_kb": peak_rss_kb,
             "rss_settled_kb": rss_settled_kb,
             "rss_growth_after_recovery_kb": rss_growth_kb,

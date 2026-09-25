@@ -192,6 +192,41 @@ CLAIM_TYPES = {
     'court_finding',
 }
 PUBLIC_STATES = {'published', 'disputed', 'corrected', 'withdrawn'}
+
+# Evidence-state taxonomy (server side, fail closed).  Public capsules must
+# never overstate provenance, so every stored source carries a canonical class
+# drawn from this closed set.  Unknown values are rejected at the ingest
+# boundary instead of being silently promoted to a primary official record.
+EVIDENCE_SOURCE_CLASSES = (
+    'primary_official_record',
+    'official_statement',
+    'independent_technical',
+    'reputable_reporting',
+    'public_submission',
+)
+EVIDENCE_CLASS_ALIASES = {
+    'official': 'primary_official_record',
+    'primary': 'primary_official_record',
+    'statement': 'official_statement',
+    'independent': 'independent_technical',
+    'technical': 'independent_technical',
+    'reporting': 'reputable_reporting',
+    'press': 'reputable_reporting',
+    'submission': 'public_submission',
+    'public': 'public_submission',
+}
+# Lowest-trust landing spot for legacy rows written before the taxonomy was
+# enforced: degrade, never upgrade.
+EVIDENCE_CLASS_FALLBACK = 'public_submission'
+
+
+def canonical_source_class(value):
+    """Canonical evidence class for a raw value, or None when unmappable."""
+    key = (value or '').strip().lower()
+    if key in EVIDENCE_SOURCE_CLASSES:
+        return key
+    return EVIDENCE_CLASS_ALIASES.get(key)
+
 ID_RE = re.compile(r'^[a-z]{3}_[a-f0-9]{16}$')
 IDEMPOTENCY_STUCK_FLOOR_SECONDS = 30
 
@@ -702,14 +737,15 @@ def stable_json_bytes(value):
 
 
 def source_class_for_envelope(value):
-    mapping = {
-        'official': 'primary_official_record',
-        'official_statement': 'official_statement',
-        'independent': 'independent_technical',
-        'reporting': 'reputable_reporting',
-        'submission': 'public_submission',
-    }
-    return mapping.get((value or '').strip(), 'primary_official_record')
+    # Degrade unknown or legacy classes to the lowest-trust class.  Silently
+    # promoting them to 'primary_official_record' overstated provenance in
+    # public capsules; the taxonomy is now enforced at ingest instead.
+    return canonical_source_class(value) or EVIDENCE_CLASS_FALLBACK
+
+
+def source_class_publishable(c, sid):
+    row = c.execute('SELECT source_class FROM sources WHERE id=?', (sid,)).fetchone()
+    return bool(row) and canonical_source_class(row['source_class']) is not None
 
 
 def anchor_from_claim(claim):
@@ -1276,6 +1312,23 @@ class H(BaseHTTPRequestHandler):
                 return
             lines = '\n'.join(f'project_xray_{k}_total {v}' for k, v in metrics_snapshot().items()) + '\n'
             return self.text(lines, ctype='text/plain; version=0.0.4')
+        if path == '/api/evidence-states':
+            return self.out(
+                {
+                    'source_classes': list(EVIDENCE_SOURCE_CLASSES),
+                    'source_class_aliases': dict(sorted(EVIDENCE_CLASS_ALIASES.items())),
+                    'unmappable_class_fallback': EVIDENCE_CLASS_FALLBACK,
+                    'publication_states': sorted(['candidate', 'reviewed'] + sorted(PUBLIC_STATES)),
+                    'public_states': sorted(PUBLIC_STATES),
+                    'publication_gate': {
+                        'distinct_approvals_required': 2,
+                        'rejections_allowed': 0,
+                        'self_review_allowed': False,
+                        'source_documents_must_be': 'clean',
+                        'source_class_must_be_canonical': True,
+                    },
+                }
+            )
         if path == '/api/admin/abuse':
             if not self.principal(('admin',)):
                 return
@@ -1546,6 +1599,13 @@ class H(BaseHTTPRequestHandler):
                     sha256 = clean(data.get('sha256', ''), 64, True).lower()
                     if not url.startswith(('https://', 'http://')) or not re.fullmatch(r'[a-f0-9]{64}', sha256):
                         return self.out({'error': 'valid source URL and SHA-256 required'}, 400)
+                    source_class = canonical_source_class(clean(data.get('source_class', 'official'), 50, True))
+                    if not source_class:
+                        _metric_inc('evidence_class_rejected')
+                        return self.out(
+                            {'error': 'source_class must be one of ' + ', '.join(EVIDENCE_SOURCE_CLASSES)},
+                            400,
+                        )
                     source_id = uid('src')
                     c.execute(
                         'INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?)',
@@ -1554,7 +1614,7 @@ class H(BaseHTTPRequestHandler):
                             project_id,
                             clean(data.get('publisher', ''), 200, True),
                             url,
-                            clean(data.get('source_class', 'official'), 50, True),
+                            source_class,
                             clean(data.get('retrieved_at', now()), 64, True),
                             sha256,
                             clean(data.get('passage', ''), 4000),
@@ -1730,6 +1790,12 @@ class H(BaseHTTPRequestHandler):
                     if not source_publishable(c, claim['source_id']):
                         _metric_inc('quarantine_blocks')
                         return self.out({'error': 'source document remains quarantined or rejected'}, 409)
+                    if not source_class_publishable(c, claim['source_id']):
+                        _metric_inc('evidence_taxonomy_blocks')
+                        return self.out(
+                            {'error': 'source evidence class is outside the published taxonomy'},
+                            409,
+                        )
                     if claim['publication_state'] in PUBLIC_STATES:
                         return self.out({'id': segments[4], 'version': claim['version'], 'publication_state': claim['publication_state']})
                     state = 'corrected' if claim['version'] > 1 else 'published'

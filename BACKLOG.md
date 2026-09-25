@@ -21,7 +21,7 @@
 - [ ] Duplicate media/document detection.
 - [ ] Marathi/Hindi human-reviewed summaries.
 - [ ] Correction submission workflow.
-- [ ] Rate limits and abuse dashboard.
+- [x] Rate limits and abuse dashboard. (session 16: admin-only `GET /api/admin/abuse`, bounded HMAC-fingerprinted offender ledger)
 
 ## P2 — post-launch
 - [ ] Portal-specific collectors.

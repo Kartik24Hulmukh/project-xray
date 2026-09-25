@@ -316,6 +316,9 @@ class CursorAdapter:
     def fetchall(self):
         return [RowAdapter(r) for r in self._cursor.fetchall()]
 
+    def fetchmany(self, size):
+        return [RowAdapter(r) for r in self._cursor.fetchmany(size)]
+
     @property
     def rowcount(self):
         return self._cursor.rowcount

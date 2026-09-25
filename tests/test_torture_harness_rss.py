@@ -67,6 +67,16 @@ class TortureHarnessRssTests(unittest.TestCase):
                          "hard-coded receipt timestamp must not return")
         self.assertIn("datetime.now(timezone.utc)", source)
 
+    def test_multiwave_leak_gate_is_wired_into_pass_verdict(self):
+        source = (ROOT / "scripts" / "human_persona_torture.py").read_text(encoding="utf-8")
+        self.assertIn('"--waves"', source)
+        for key in ("rss_settled_per_wave_kb", "rss_wave_growth_kb", "rss_no_unbounded_growth", '"waves"'):
+            self.assertIn(key, source)
+        self.assertIn('operational_baselines["rss_no_unbounded_growth"]', source,
+                      "leak gate must feed the overall PASS verdict, not just the receipt")
+        self.assertIn("torture_duration += time.perf_counter() - wave_t0", source,
+                      "throughput must be computed over every wave, not only the first")
+
 
 if __name__ == "__main__":
     unittest.main()

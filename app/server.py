@@ -533,9 +533,20 @@ def auth(headers):
     return (row['role'], row['principal']) if row else (None, None)
 
 
+
+def _gap_status(data):
+    status = data.get('status', 'not_located')
+    if status not in ('not_located', 'located', 'refused'):
+        raise ValueError('gap status must be not_located, located or refused')
+    return status
+
 def clean(value, limit, required=False):
     if not isinstance(value, str):
         raise ValueError('expected string')
+    # Reject C0 controls and DEL at the boundary rather than silently stripping
+    # them: a value made of pure controls must be a 400, not an emptied field.
+    if any(ch < ' ' or ch == chr(127) for ch in value):
+        raise ValueError('control characters are not allowed')
     value = value.strip()
     if required and not value:
         raise ValueError('required field is empty')
@@ -1040,6 +1051,10 @@ class H(BaseHTTPRequestHandler):
         # handle so the error reply is actually written to the client instead
         # of being buffered for a commit that will never happen.
         self.tx = None
+        # Boundary validation (clean()) that escaped a handler is a client
+        # error, not a server fault: answer 400 instead of the generic 500.
+        if isinstance(exc, ValueError):
+            return self.out({'error': 'invalid input', 'detail': str(exc)[:300], 'request_id': self.request_id or uid('req')}, 400)
         if isinstance(exc, IdempotencyLeaseLost):
             return self.out({'error': 'idempotency reservation was reclaimed by a concurrent retry; replay with the same key', 'request_id': self.request_id or uid('req')}, 409,
                             extra_headers={'Retry-After': '1'})
@@ -1852,7 +1867,7 @@ class H(BaseHTTPRequestHandler):
                             clean(data.get('document_name', ''), 300, True),
                             clean(data.get('search_scope', ''), 2000, True),
                             clean(data.get('searched_at', now()), 64, True),
-                            data.get('status', 'not_located'),
+                            _gap_status(data),
                             now(),
                         ),
                     )
@@ -1863,6 +1878,8 @@ class H(BaseHTTPRequestHandler):
                     if role != 'admin':
                         return self.out({'error': 'admin required'}, 403)
                     source_id = data.get('source_id') or None
+                    if source_id is not None and not isinstance(source_id, str):
+                        return self.out({'error': 'source_id must be a source identifier'}, 400)
                     if source_id and not source(c, source_id, project_id):
                         return self.out({'error': 'source not found'}, 400)
                     response_id = uid('rsp')

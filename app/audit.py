@@ -61,16 +61,22 @@ def verify_segment(c,key,start_id,previous,limit,count_offset):
  the resumable cursor plus whether the tail of the chain was reached.
  Raises RuntimeError on any tamper, exactly like verify().
  """
- rows=c.execute('SELECT e.id AS id,e.event_id AS event_id,e.actor AS actor,e.action AS action,e.object_type AS object_type,e.object_id AS object_id,e.detail AS detail,e.previous_hash AS previous_hash,e.event_hash AS event_hash,e.created_at AS created_at,cp.event_count AS cp_count,cp.head_hash AS cp_head,cp.signature AS cp_signature FROM audit_events e LEFT JOIN audit_checkpoints cp ON cp.event_id=e.event_id WHERE e.id>? ORDER BY e.id LIMIT ?',(start_id,limit)).fetchall()
- count=count_offset;last_id=start_id
- for r in rows:
-  count+=1
-  expected=event_hash(previous,r['event_id'],r['actor'],r['action'],r['object_type'],r['object_id'],r['detail'],r['created_at'])
-  if r['previous_hash']!=previous or r['event_hash']!=expected:raise RuntimeError(f'audit chain broken at id={r["id"]}')
-  if r['cp_signature'] is None or r['cp_count']!=count or r['cp_head']!=expected:raise RuntimeError(f'audit checkpoint missing or inconsistent at id={r["id"]}')
-  if not hmac.compare_digest(r['cp_signature'],checkpoint_signature(r['event_id'],count,expected,key)):raise RuntimeError(f'audit checkpoint signature invalid at id={r["id"]}')
-  previous=expected;last_id=r['id']
- return {'last_id':last_id,'previous':previous,'count':count,'scanned':len(rows),'complete':len(rows)<limit}
+ # Stream in fixed-size pages so peak memory is O(page), not O(limit).
+ # A READYZ_VERIFY_BATCH of 1000 used to materialise the whole slice at once.
+ _PAGE=256
+ cur=c.execute('SELECT e.id AS id,e.event_id AS event_id,e.actor AS actor,e.action AS action,e.object_type AS object_type,e.object_id AS object_id,e.detail AS detail,e.previous_hash AS previous_hash,e.event_hash AS event_hash,e.created_at AS created_at,cp.event_count AS cp_count,cp.head_hash AS cp_head,cp.signature AS cp_signature FROM audit_events e LEFT JOIN audit_checkpoints cp ON cp.event_id=e.event_id WHERE e.id>? ORDER BY e.id LIMIT ?',(start_id,limit))
+ count=count_offset;last_id=start_id;scanned=0
+ while scanned<limit:
+  page=cur.fetchmany(_PAGE)
+  if not page:break
+  for r in page:
+   count+=1
+   expected=event_hash(previous,r['event_id'],r['actor'],r['action'],r['object_type'],r['object_id'],r['detail'],r['created_at'])
+   if r['previous_hash']!=previous or r['event_hash']!=expected:raise RuntimeError(f'audit chain broken at id={r["id"]}')
+   if r['cp_signature'] is None or r['cp_count']!=count or r['cp_head']!=expected:raise RuntimeError(f'audit checkpoint missing or inconsistent at id={r["id"]}')
+   if not hmac.compare_digest(r['cp_signature'],checkpoint_signature(r['event_id'],count,expected,key)):raise RuntimeError(f'audit checkpoint signature invalid at id={r["id"]}')
+   previous=expected;last_id=r['id'];scanned+=1
+ return {'last_id':last_id,'previous':previous,'count':count,'scanned':scanned,'complete':scanned<limit}
 
 
 def verify_orphans(c,count):

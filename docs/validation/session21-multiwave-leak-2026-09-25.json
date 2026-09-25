@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-09-25T19:53:40Z",
+  "scope": "100-persona human torture under 100x concurrency",
+  "seed": 20260925,
+  "personas_emulated": 120,
+  "concurrency": 100,
+  "total_requests": 1425,
+  "duration_seconds": 1.679,
+  "throughput_rps": 848.7,
+  "latency_ms": {
+    "p50": 85.03,
+    "p95": 158.28,
+    "p99": 211.14,
+    "min": 0.95,
+    "max": 306.43
+  },
+  "status_distribution": {
+    "404": 375,
+    "200": 673,
+    "201": 225,
+    "503": 2,
+    "400": 75,
+    "401": 75
+  },
+  "operational_baselines": {
+    "zero_unhandled_panics": true,
+    "no_server_crash": true,
+    "tracebacks_in_log": 0,
+    "peak_rss_kb": 52388,
+    "peak_rss_bounded_128mb": true,
+    "rss_floor_kb": 32728,
+    "rss_ceiling_kb": 52388,
+    "rss_settled_kb": 52388,
+    "rss_growth_after_recovery_kb": 19660,
+    "rss_sampled_min_kb": 32728,
+    "rss_sampled_max_kb": 50216,
+    "rss_samples": 25,
+    "rss_settled_bounded_128mb": true,
+    "waves": 5,
+    "rss_settled_per_wave_kb": [
+      49024,
+      50180,
+      51092,
+      51700,
+      52388
+    ],
+    "rss_wave_growth_kb": 3364,
+    "rss_no_unbounded_growth": true,
+    "health_recovery_ms": 0.6034653633832932,
+    "health_recovery_sub_200ms": true,
+    "ready_recovery_ms": 1.3816729187965393,
+    "ready_recovery_sub_200ms": true
+  },
+  "pass": true
+}

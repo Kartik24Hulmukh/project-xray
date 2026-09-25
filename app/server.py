@@ -533,14 +533,43 @@ def auth(headers):
     return (row['role'], row['principal']) if row else (None, None)
 
 
+_CONTROL_CHARS = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+
 def clean(value, limit, required=False):
     if not isinstance(value, str):
         raise ValueError('expected string')
+    # Reject C0 controls (except TAB/LF/CR) and DEL before stripping so hostile
+    # bytes can never reach SQL, CSV exports or the audit detail column.
+    if _CONTROL_CHARS.search(value):
+        raise ValueError('control characters are not allowed')
     value = value.strip()
     if required and not value:
         raise ValueError('required field is empty')
     if len(value) > limit:
         raise ValueError(f'field exceeds {limit} characters')
+    return value
+
+
+# Closed set mirrored from db/schema.sql and db/schema_postgres.sql
+# CHECK(status IN (...)); enforced here so a bad value is a 400, not an
+# opaque 409 surfaced from the storage engine.
+GAP_STATUSES = ('not_located', 'requested', 'received', 'not_held')
+
+
+def gap_status(value):
+    if value is None:
+        return 'not_located'
+    if not isinstance(value, str) or value not in GAP_STATUSES:
+        raise ValueError('status must be one of ' + ', '.join(GAP_STATUSES))
+    return value
+
+
+def optional_source_id(value):
+    if value is None or value == '':
+        return None
+    if not isinstance(value, str):
+        raise ValueError('source_id must be a string or null')
     return value
 
 
@@ -1693,6 +1722,8 @@ class H(BaseHTTPRequestHandler):
                         return self.out({'error': 'admin required'}, 403)
                     claim_type = data.get('claim_type')
                     source_id = data.get('source_id', '')
+                    if not isinstance(source_id, str):
+                        raise ValueError('source_id must be a string')
                     text = clean(data.get('text', ''), 8000, True)
                     passage = clean(data.get('passage', ''), 4000)
                     page_ref = clean(data.get('page_ref', ''), 100)
@@ -1852,7 +1883,7 @@ class H(BaseHTTPRequestHandler):
                             clean(data.get('document_name', ''), 300, True),
                             clean(data.get('search_scope', ''), 2000, True),
                             clean(data.get('searched_at', now()), 64, True),
-                            data.get('status', 'not_located'),
+                            gap_status(data.get('status')),
                             now(),
                         ),
                     )
@@ -1862,7 +1893,7 @@ class H(BaseHTTPRequestHandler):
                 if kind == 'responses' and len(segments) == 4:
                     if role != 'admin':
                         return self.out({'error': 'admin required'}, 403)
-                    source_id = data.get('source_id') or None
+                    source_id = optional_source_id(data.get('source_id'))
                     if source_id and not source(c, source_id, project_id):
                         return self.out({'error': 'source not found'}, 400)
                     response_id = uid('rsp')

@@ -10,6 +10,7 @@ The HTTP tests spawn `app/server.py` in a subprocess with their own database
 and port, so they cannot bind module-level server constants to this file's
 environment (the suite-order bug found in session 16).
 """
+import contextlib
 import json
 import os
 import socket
@@ -169,7 +170,7 @@ class TestEvidenceTaxonomyHTTP(unittest.TestCase):
         self.assertEqual(status, 201)
         status, _ = self.add_source(pid, 'independent_technical', '3' * 64)
         self.assertEqual(status, 201)
-        with sqlite3.connect(self.db) as conn:
+        with contextlib.closing(sqlite3.connect(self.db)) as conn, conn:
             stored = sorted(r[0] for r in conn.execute(
                 'SELECT source_class FROM sources WHERE project_id=?', (pid,)))
         self.assertEqual(stored, ['independent_technical', 'primary_official_record'])
@@ -179,7 +180,7 @@ class TestEvidenceTaxonomyHTTP(unittest.TestCase):
         status, source = self.add_source(pid, 'official', '4' * 64)
         self.assertEqual(status, 201)
         # Simulate a row written before the taxonomy existed.
-        with sqlite3.connect(self.db) as conn:
+        with contextlib.closing(sqlite3.connect(self.db)) as conn, conn:
             conn.execute('UPDATE sources SET source_class=? WHERE id=?',
                          ('legacy-freeform', source['id']))
         status, claim = call(self.port, f'/api/projects/{pid}/claims', 'POST',

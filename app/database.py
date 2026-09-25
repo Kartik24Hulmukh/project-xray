@@ -421,6 +421,23 @@ def _wal_identity(path):
         return (str(path), None, None)
 
 
+def _header_is_wal(path):
+    """True when the on-disk SQLite header says the file is in WAL mode.
+
+    Bytes 18/19 of the 100-byte header (file format write/read version) are 2
+    for WAL and 1 for rollback journals. Reading them is lock-free and cheap.
+    It closes the inode-reuse hole: a database deleted and recreated can reuse
+    the same (dev, inode), which made the cached identity claim WAL for a
+    fresh rollback-journal file.
+    """
+    try:
+        with open(path, 'rb') as fh:
+            header = fh.read(20)
+    except OSError:
+        return False
+    return len(header) == 20 and header[18] == 2 and header[19] == 2
+
+
 def _ensure_wal(conn, path):
     """Switch the database file to WAL exactly once per process.
 
@@ -431,11 +448,12 @@ def _ensure_wal(conn, path):
     the (path, device, inode) key re-arms the switch if the file is recreated.
     """
     key = _wal_identity(path)
-    if key in _WAL_READY:
+    if key in _WAL_READY and _header_is_wal(path):
         return
     with _WAL_LOCK:
-        if key in _WAL_READY:
+        if key in _WAL_READY and _header_is_wal(path):
             return
+        _WAL_READY.discard(key)
         mode = conn.execute('PRAGMA journal_mode=WAL').fetchone()[0]
         if str(mode).lower() == 'wal':
             _WAL_READY.add(key)

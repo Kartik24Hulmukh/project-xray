@@ -53,7 +53,11 @@ class TestUploadValidation(unittest.TestCase):
         with server._RATE_LOCK:
             cls._rate_backup = dict(server.RATE)
             server.RATE.clear()
-        cls.http = server.ThreadingHTTPServer(('127.0.0.1', PORT), server.H)
+        # Production listener (backlog 128 + bounded admission). The stdlib
+        # ThreadingHTTPServer has a listen backlog of 5, which resets bursts of
+        # 32 concurrent connects on CI runners -- a harness artefact, not the
+        # product behaviour under test.
+        cls.http = server.BoundedHTTPServer(('127.0.0.1', PORT), server.H, max_workers=64)
         threading.Thread(target=cls.http.serve_forever, daemon=True).start()
         cls.admin = server.ADMIN_TOKEN
         status, body = cls.req('/api/projects', 'POST', {'title': 'Upload boundary', 'authority': 'Example', 'synthetic': True})

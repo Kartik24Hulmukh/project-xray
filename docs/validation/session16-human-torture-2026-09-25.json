@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-09-19T19:00:00Z",
+  "scope": "100-persona human torture under 100x concurrency",
+  "seed": 20260925,
+  "personas_emulated": 120,
+  "concurrency": 100,
+  "total_requests": 285,
+  "duration_seconds": 0.327,
+  "throughput_rps": 871.3,
+  "latency_ms": {
+    "p50": 84.68,
+    "p95": 165.03,
+    "p99": 200.48,
+    "min": 1.17,
+    "max": 215.87
+  },
+  "status_distribution": {
+    "404": 75,
+    "200": 135,
+    "201": 45,
+    "400": 15,
+    "401": 15
+  },
+  "operational_baselines": {
+    "zero_unhandled_panics": true,
+    "no_server_crash": true,
+    "tracebacks_in_log": 0,
+    "peak_rss_kb": 43112,
+    "peak_rss_bounded_128mb": true,
+    "health_recovery_ms": 0.5981475114822388,
+    "health_recovery_sub_200ms": true,
+    "ready_recovery_ms": 1.6623735427856445,
+    "ready_recovery_sub_200ms": true
+  },
+  "pass": true
+}

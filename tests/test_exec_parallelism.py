@@ -12,6 +12,14 @@ from unittest import mock
 from app import database, server
 
 
+
+def _journal_mode(path):
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute('PRAGMA journal_mode').fetchone()[0]
+    finally:
+        conn.close()
+
 class _Probe(server.BaseHTTPRequestHandler):
     active = 0
     peak = 0
@@ -117,12 +125,12 @@ class WalSwitchOnce(unittest.TestCase):
                 for _ in range(5):
                     database.connect(path).close()
             self.assertEqual(len(issued), 1)
-            self.assertEqual(sqlite3.connect(path).execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+            self.assertEqual(_journal_mode(path), 'wal')
             # Recreating the file re-arms the switch (identity is path+inode).
             os.remove(path)
             database.connect(path).close()
             self.assertEqual(len(issued), 1)  # spy no longer patched; only checks no crash
-            self.assertEqual(sqlite3.connect(path).execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+            self.assertEqual(_journal_mode(path), 'wal')
         database.reset_wal_cache()
 
 

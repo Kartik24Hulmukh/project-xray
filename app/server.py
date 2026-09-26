@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import collections
+import hmac
 import hashlib
 import ipaddress
 import functools
@@ -79,6 +81,75 @@ def metrics_snapshot():
     with _METRICS_LOCK:
         return dict(METRICS)
 
+
+# --- Abuse read model (BACKLOG P1: rate limits + abuse dashboard) ---------
+# Bounded, privacy-preserving offender ledger.  Client identities are never
+# stored raw: they are HMAC-SHA256 digests (truncated) keyed with the token
+# pepper, so the dashboard can correlate repeat offenders without retaining
+# IP addresses.  The ledger is hard-capped (ABUSE_MAX_OFFENDERS) and evicts the
+# least-recently-seen entry, so hostile traffic cannot grow memory unboundedly.
+ABUSE_MAX_OFFENDERS = max(16, int(os.getenv('ABUSE_MAX_OFFENDERS', '1024')))
+ABUSE_TOP_N = 10
+_ABUSE_LOCK = threading.Lock()
+_ABUSE = collections.OrderedDict()
+_ABUSE_BY_CATEGORY = {}
+
+
+def _abuse_fingerprint(identity):
+    key = os.getenv('TOKEN_PEPPER', 'development-token-pepper-not-for-production').encode()
+    return hmac.new(key, str(identity).encode('utf-8', 'replace'), hashlib.sha256).hexdigest()[:16]
+
+
+def record_abuse(category, identity, when=None):
+    fp = _abuse_fingerprint(identity)
+    ts = int(when if when is not None else time.time())
+    with _ABUSE_LOCK:
+        entry = _ABUSE.pop(fp, None) or {'fingerprint': fp, 'total': 0, 'categories': {}, 'first_seen': ts}
+        entry['total'] += 1
+        entry['categories'][category] = entry['categories'].get(category, 0) + 1
+        entry['last_seen'] = ts
+        _ABUSE[fp] = entry
+        while len(_ABUSE) > ABUSE_MAX_OFFENDERS:
+            _ABUSE.popitem(last=False)
+        _ABUSE_BY_CATEGORY[category] = _ABUSE_BY_CATEGORY.get(category, 0) + 1
+
+
+def abuse_snapshot(top_n=ABUSE_TOP_N):
+    with _ABUSE_LOCK:
+        offenders = sorted(
+            (dict(e, categories=dict(e['categories'])) for e in _ABUSE.values()),
+            key=lambda e: (-e['total'], e['fingerprint']),
+        )[: max(0, int(top_n))]
+        by_category = dict(_ABUSE_BY_CATEGORY)
+        tracked = len(_ABUSE)
+    with _RATE_LOCK:
+        minute = int(time.time() // 60)
+        active = {}
+        for (category, _ident, m), count in RATE.items():
+            if m == minute:
+                active[category] = active.get(category, 0) + 1
+    return {
+        'limits_per_minute': {
+            'public_read': PUBLIC_READ_RATE_LIMIT,
+            'auth_read': AUTH_READ_RATE_LIMIT,
+            'write': WRITE_RATE_LIMIT,
+            'expensive_write': EXPENSIVE_WRITE_RATE_LIMIT,
+        },
+        'rate_limited_total': metrics_snapshot().get('rate_limited', 0),
+        'rate_limited_by_category': by_category,
+        'active_clients_current_minute': active,
+        'tracked_offenders': tracked,
+        'tracked_offenders_cap': ABUSE_MAX_OFFENDERS,
+        'top_offenders': offenders,
+        'identity_privacy': 'hmac-sha256-truncated; raw client addresses are never stored',
+    }
+
+
+def reset_abuse_state():
+    with _ABUSE_LOCK:
+        _ABUSE.clear()
+        _ABUSE_BY_CATEGORY.clear()
+
 TOKEN_PEPPER = os.getenv('TOKEN_PEPPER', 'development-token-pepper-not-for-production')
 AUDIT_KEY = os.getenv('AUDIT_HMAC_KEY', 'development-audit-key-not-for-production')
 OIDC_SECRET = os.getenv('OIDC_PROXY_SECRET', '')
@@ -121,6 +192,41 @@ CLAIM_TYPES = {
     'court_finding',
 }
 PUBLIC_STATES = {'published', 'disputed', 'corrected', 'withdrawn'}
+
+# Evidence-state taxonomy (server side, fail closed).  Public capsules must
+# never overstate provenance, so every stored source carries a canonical class
+# drawn from this closed set.  Unknown values are rejected at the ingest
+# boundary instead of being silently promoted to a primary official record.
+EVIDENCE_SOURCE_CLASSES = (
+    'primary_official_record',
+    'official_statement',
+    'independent_technical',
+    'reputable_reporting',
+    'public_submission',
+)
+EVIDENCE_CLASS_ALIASES = {
+    'official': 'primary_official_record',
+    'primary': 'primary_official_record',
+    'statement': 'official_statement',
+    'independent': 'independent_technical',
+    'technical': 'independent_technical',
+    'reporting': 'reputable_reporting',
+    'press': 'reputable_reporting',
+    'submission': 'public_submission',
+    'public': 'public_submission',
+}
+# Lowest-trust landing spot for legacy rows written before the taxonomy was
+# enforced: degrade, never upgrade.
+EVIDENCE_CLASS_FALLBACK = 'public_submission'
+
+
+def canonical_source_class(value):
+    """Canonical evidence class for a raw value, or None when unmappable."""
+    key = (value or '').strip().lower()
+    if key in EVIDENCE_SOURCE_CLASSES:
+        return key
+    return EVIDENCE_CLASS_ALIASES.get(key)
+
 ID_RE = re.compile(r'^[a-z]{3}_[a-f0-9]{16}$')
 IDEMPOTENCY_STUCK_FLOOR_SECONDS = 30
 
@@ -427,15 +533,92 @@ def auth(headers):
     return (row['role'], row['principal']) if row else (None, None)
 
 
+_CONTROL_CHARS = re.compile('[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+
 def clean(value, limit, required=False):
     if not isinstance(value, str):
         raise ValueError('expected string')
+    # Reject C0 controls (except TAB/LF/CR) and DEL before stripping so hostile
+    # bytes can never reach SQL, CSV exports or the audit detail column.
+    if _CONTROL_CHARS.search(value):
+        raise ValueError('control characters are not allowed')
     value = value.strip()
     if required and not value:
         raise ValueError('required field is empty')
     if len(value) > limit:
         raise ValueError(f'field exceeds {limit} characters')
     return value
+
+
+# Closed set mirrored from db/schema.sql and db/schema_postgres.sql
+# CHECK(status IN (...)); enforced here so a bad value is a 400, not an
+# opaque 409 surfaced from the storage engine.
+GAP_STATUSES = ('not_located', 'requested', 'received', 'not_held')
+
+
+def gap_status(value):
+    if value is None:
+        return 'not_located'
+    if not isinstance(value, str) or value not in GAP_STATUSES:
+        raise ValueError('status must be one of ' + ', '.join(GAP_STATUSES))
+    return value
+
+
+def optional_source_id(value):
+    if value is None or value == '':
+        return None
+    if not isinstance(value, str):
+        raise ValueError('source_id must be a string or null')
+    return value
+
+
+# Upload boundary.  Document registration is the only path by which bytes can
+# enter quarantine, so every field is type-checked *before* it touches SQL or
+# storage: JSON booleans/floats are not sizes, filenames are inert basenames
+# (no separators, traversal, control or bidi characters) and the extension must
+# agree with the declared media type, so a scanner that dispatches on either
+# one sees the same file class.  Anything else is a 400, never a 500.
+UPLOAD_MEDIA_EXTENSIONS = {
+    'application/pdf': ('.pdf',),
+    'text/plain': ('.txt',),
+    'text/csv': ('.csv',),
+    'application/json': ('.json',),
+    'image/png': ('.png',),
+    'image/jpeg': ('.jpg', '.jpeg'),
+}
+UPLOAD_MAX_BYTES = MAX
+_FILENAME_FORBIDDEN_RE = re.compile(r'[\x00-\x1f\x7f/\\:*?"<>|\u202a-\u202e\u2066-\u2069]')
+
+
+def validate_document_metadata(data):
+    if not isinstance(data, dict):
+        raise ValueError('body must be a JSON object')
+    sha256 = clean(data.get('sha256', ''), 64, True).lower()
+    if not re.fullmatch(r'[a-f0-9]{64}', sha256):
+        raise ValueError('sha256 must be 64 hex characters')
+    media = clean(data.get('media_type', ''), 100, True)
+    if media not in UPLOAD_MEDIA_EXTENSIONS:
+        raise ValueError('unsupported media_type')
+    size = data.get('size_bytes')
+    if type(size) is not int or not 1 <= size <= UPLOAD_MAX_BYTES:
+        raise ValueError('size_bytes must be an integer between 1 and %d' % UPLOAD_MAX_BYTES)
+    raw_name = data.get('filename', '')
+    if not isinstance(raw_name, str):
+        raise ValueError('expected string')
+    if _FILENAME_FORBIDDEN_RE.search(raw_name):
+        raise ValueError('filename must be a plain basename')
+    filename = clean(raw_name, 255, True)
+    stem, dot, ext = filename.rpartition('.')
+    if not dot or not stem.strip(' .') or filename.startswith('.'):
+        raise ValueError('filename requires a name and extension')
+    if '.' + ext.lower() not in UPLOAD_MEDIA_EXTENSIONS[media]:
+        raise ValueError('filename extension does not match media_type')
+    source_id = data.get('source_id') or None
+    if source_id is not None and not (isinstance(source_id, str) and valid_id(source_id, 'src')):
+        raise ValueError('source_id must be a source identifier')
+    storage_uri = clean(data.get('storage_uri', ''), 1000)
+    return {'sha256': sha256, 'media_type': media, 'size_bytes': size, 'filename': filename, 'source_id': source_id, 'storage_uri': storage_uri}
 
 
 def valid_id(value, prefix=None):
@@ -583,14 +766,15 @@ def stable_json_bytes(value):
 
 
 def source_class_for_envelope(value):
-    mapping = {
-        'official': 'primary_official_record',
-        'official_statement': 'official_statement',
-        'independent': 'independent_technical',
-        'reporting': 'reputable_reporting',
-        'submission': 'public_submission',
-    }
-    return mapping.get((value or '').strip(), 'primary_official_record')
+    # Degrade unknown or legacy classes to the lowest-trust class.  Silently
+    # promoting them to 'primary_official_record' overstated provenance in
+    # public capsules; the taxonomy is now enforced at ingest instead.
+    return canonical_source_class(value) or EVIDENCE_CLASS_FALLBACK
+
+
+def source_class_publishable(c, sid):
+    row = c.execute('SELECT source_class FROM sources WHERE id=?', (sid,)).fetchone()
+    return bool(row) and canonical_source_class(row['source_class']) is not None
 
 
 def anchor_from_claim(claim):
@@ -988,6 +1172,7 @@ class H(BaseHTTPRequestHandler):
             limited_now = slot >= limit
         if limited_now:
             _metric_inc('rate_limited')
+            record_abuse(category, self.client_identity())
             return True
         return False
 
@@ -1112,6 +1297,8 @@ class H(BaseHTTPRequestHandler):
                     {
                         'status': 'not_ready',
                         'ready': False,
+                        'reason': 'maintenance_mode' if capability_policy.maintenance
+                                  else 'capability_policy_invalid',
                         'capabilities': capability_policy.as_public_dict(),
                     },
                     503,
@@ -1142,11 +1329,23 @@ class H(BaseHTTPRequestHandler):
                     },
                     503,
                 )
-            except Exception:
+            except Exception as exc:
+                # Fail closed, but never silently: the probe carries a
+                # machine-readable reason and the exception class (never its
+                # message, which may embed caller data) so that operators and
+                # the determinism gate can classify the answer.
+                print(json.dumps({
+                    'time': now(),
+                    'request_id': getattr(self, 'request_id', None),
+                    'message': 'readiness_dependency_check_failed',
+                    'error_class': type(exc).__name__,
+                }, separators=(',', ':')))
                 return self.out(
                     {
                         'status': 'not_ready',
                         'ready': False,
+                        'reason': 'dependency_check_failed',
+                        'error_class': type(exc).__name__,
                         'capabilities': capability_policy.as_public_dict(),
                     },
                     503,
@@ -1156,6 +1355,27 @@ class H(BaseHTTPRequestHandler):
                 return
             lines = '\n'.join(f'project_xray_{k}_total {v}' for k, v in metrics_snapshot().items()) + '\n'
             return self.text(lines, ctype='text/plain; version=0.0.4')
+        if path == '/api/evidence-states':
+            return self.out(
+                {
+                    'source_classes': list(EVIDENCE_SOURCE_CLASSES),
+                    'source_class_aliases': dict(sorted(EVIDENCE_CLASS_ALIASES.items())),
+                    'unmappable_class_fallback': EVIDENCE_CLASS_FALLBACK,
+                    'publication_states': sorted(['candidate', 'reviewed'] + sorted(PUBLIC_STATES)),
+                    'public_states': sorted(PUBLIC_STATES),
+                    'publication_gate': {
+                        'distinct_approvals_required': 2,
+                        'rejections_allowed': 0,
+                        'self_review_allowed': False,
+                        'source_documents_must_be': 'clean',
+                        'source_class_must_be_canonical': True,
+                    },
+                }
+            )
+        if path == '/api/admin/abuse':
+            if not self.principal(('admin',)):
+                return
+            return self.out(abuse_snapshot())
         if path == '/api/auth/tokens':
             if not self.principal(('admin',)):
                 return
@@ -1422,6 +1642,13 @@ class H(BaseHTTPRequestHandler):
                     sha256 = clean(data.get('sha256', ''), 64, True).lower()
                     if not url.startswith(('https://', 'http://')) or not re.fullmatch(r'[a-f0-9]{64}', sha256):
                         return self.out({'error': 'valid source URL and SHA-256 required'}, 400)
+                    source_class = canonical_source_class(clean(data.get('source_class', 'official'), 50, True))
+                    if not source_class:
+                        _metric_inc('evidence_class_rejected')
+                        return self.out(
+                            {'error': 'source_class must be one of ' + ', '.join(EVIDENCE_SOURCE_CLASSES)},
+                            400,
+                        )
                     source_id = uid('src')
                     c.execute(
                         'INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?)',
@@ -1430,7 +1657,7 @@ class H(BaseHTTPRequestHandler):
                             project_id,
                             clean(data.get('publisher', ''), 200, True),
                             url,
-                            clean(data.get('source_class', 'official'), 50, True),
+                            source_class,
                             clean(data.get('retrieved_at', now()), 64, True),
                             sha256,
                             clean(data.get('passage', ''), 4000),
@@ -1444,17 +1671,12 @@ class H(BaseHTTPRequestHandler):
                 if kind == 'documents' and len(segments) == 4:
                     if role != 'admin':
                         return self.out({'error': 'admin required'}, 403)
-                    sha256 = clean(data.get('sha256', ''), 64, True).lower()
-                    media = clean(data.get('media_type', ''), 100, True)
-                    size = int(data.get('size_bytes', -1))
-                    source_id = data.get('source_id') or None
-                    storage_uri = clean(data.get('storage_uri', ''), 1000)
-                    if (
-                        not re.fullmatch(r'[a-f0-9]{64}', sha256)
-                        or media not in {'application/pdf', 'text/plain', 'text/csv', 'application/json', 'image/png', 'image/jpeg'}
-                        or not 0 <= size <= MAX
-                    ):
-                        return self.out({'error': 'invalid document metadata'}, 400)
+                    try:
+                        meta = validate_document_metadata(data)
+                    except ValueError as exc:
+                        return self.out({'error': 'invalid document metadata', 'detail': str(exc)}, 400)
+                    sha256, media, size = meta['sha256'], meta['media_type'], meta['size_bytes']
+                    source_id, storage_uri = meta['source_id'], meta['storage_uri']
                     if source_id and not source(c, source_id, project_id):
                         return self.out({'error': 'source not found'}, 400)
                     if ENV == 'production':
@@ -1480,7 +1702,7 @@ class H(BaseHTTPRequestHandler):
                             document_id,
                             project_id,
                             source_id,
-                            clean(data.get('filename', ''), 255, True),
+                            meta['filename'],
                             media,
                             size,
                             sha256,
@@ -1514,6 +1736,8 @@ class H(BaseHTTPRequestHandler):
                         return self.out({'error': 'admin required'}, 403)
                     claim_type = data.get('claim_type')
                     source_id = data.get('source_id', '')
+                    if not isinstance(source_id, str):
+                        raise ValueError('source_id must be a string')
                     text = clean(data.get('text', ''), 8000, True)
                     passage = clean(data.get('passage', ''), 4000)
                     page_ref = clean(data.get('page_ref', ''), 100)
@@ -1611,6 +1835,12 @@ class H(BaseHTTPRequestHandler):
                     if not source_publishable(c, claim['source_id']):
                         _metric_inc('quarantine_blocks')
                         return self.out({'error': 'source document remains quarantined or rejected'}, 409)
+                    if not source_class_publishable(c, claim['source_id']):
+                        _metric_inc('evidence_taxonomy_blocks')
+                        return self.out(
+                            {'error': 'source evidence class is outside the published taxonomy'},
+                            409,
+                        )
                     if claim['publication_state'] in PUBLIC_STATES:
                         return self.out({'id': segments[4], 'version': claim['version'], 'publication_state': claim['publication_state']})
                     state = 'corrected' if claim['version'] > 1 else 'published'
@@ -1667,7 +1897,7 @@ class H(BaseHTTPRequestHandler):
                             clean(data.get('document_name', ''), 300, True),
                             clean(data.get('search_scope', ''), 2000, True),
                             clean(data.get('searched_at', now()), 64, True),
-                            data.get('status', 'not_located'),
+                            gap_status(data.get('status')),
                             now(),
                         ),
                     )
@@ -1677,7 +1907,7 @@ class H(BaseHTTPRequestHandler):
                 if kind == 'responses' and len(segments) == 4:
                     if role != 'admin':
                         return self.out({'error': 'admin required'}, 403)
-                    source_id = data.get('source_id') or None
+                    source_id = optional_source_id(data.get('source_id'))
                     if source_id and not source(c, source_id, project_id):
                         return self.out({'error': 'source not found'}, 400)
                     response_id = uid('rsp')
@@ -1780,6 +2010,52 @@ for _name in [n for n in vars(H) if n.startswith('do_')]:
 DEFAULT_EXEC_PARALLELISM = 4
 
 
+def _load_malloc_trim():
+    """Return glibc ``malloc_trim`` or None (musl/macOS/disabled).
+
+    Issue #73: settled RSS grew across soak waves on glibc because freed
+    per-thread arena pages were retained, not leaked (MALLOC_ARENA_MAX=2 made
+    the gate pass). Returning free pages to the OS when the server goes idle
+    fixes that at the source without a process-wide allocator env var, and a
+    genuine leak cannot be hidden by it: live allocations are never trimmed.
+    """
+    if os.getenv('XRAY_MALLOC_TRIM', '1').strip().lower() in ('0', 'false', 'no', 'off'):
+        return None
+    try:
+        import ctypes
+        import ctypes.util
+        libc = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6')
+        fn = libc.malloc_trim
+        fn.argtypes = [ctypes.c_size_t]
+        fn.restype = ctypes.c_int
+        return fn
+    except (OSError, AttributeError):
+        return None
+
+
+_MALLOC_TRIM = _load_malloc_trim()
+_TRIM_INTERVAL_S = float(os.getenv('XRAY_MALLOC_TRIM_INTERVAL_S', '0.25'))
+_trim_lock = threading.Lock()
+_last_trim = [0.0]
+
+
+def _trim_heap_when_idle():
+    """Rate-limited, non-blocking heap trim; never raises."""
+    if _MALLOC_TRIM is None or not _trim_lock.acquire(blocking=False):
+        return False
+    try:
+        now = time.monotonic()
+        if now - _last_trim[0] < _TRIM_INTERVAL_S:
+            return False
+        _last_trim[0] = now
+        _MALLOC_TRIM(0)
+        return True
+    except Exception:
+        return False
+    finally:
+        _trim_lock.release()
+
+
 class BoundedHTTPServer(ThreadingHTTPServer):
     """Bound active handlers; backpressure admission before creating threads.
 
@@ -1811,14 +2087,49 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         self._idle = threading.Event()
         self._idle.set()
         self.draining = False
+        self._last_request_start = time.monotonic()
+        self._reap_stop = threading.Event()
+        self._reap_thread = None
         super().__init__(address, handler)
         try:
             self.telemetry = telemetry.configured()
         except Exception:
             super().server_close()
             raise
+        self._start_heap_reaper()
+
+    def _start_heap_reaper(self):
+        """H6: trim glibc arenas on a bounded cadence, not only when fully idle.
+
+        The soak harness starts the next wave immediately, so the server is
+        never idle between waves and the ``request_finished`` idle-trim never
+        fires mid-soak; settled RSS then climbs monotonically wave over wave.
+        This daemon wakes on a short interval and trims only after a quiet
+        window with zero in-flight requests, so a genuine leak (live, still
+        referenced allocations) is never hidden -- only pages already freed
+        by glibc but not yet returned to the OS are released.
+        """
+        if _MALLOC_TRIM is None:
+            return
+        interval = max(0.05, float(os.getenv('XRAY_HEAP_REAP_INTERVAL_S', '1.0')))
+        quiet = max(0.0, float(os.getenv('XRAY_HEAP_REAP_QUIET_S', '0.5')))
+
+        def _reap_loop():
+            while not self._reap_stop.wait(interval):
+                if self.inflight() > 0:
+                    continue
+                with self._inflight_lock:
+                    last_start = self._last_request_start
+                if time.monotonic() - last_start < quiet:
+                    continue
+                _trim_heap_when_idle()
+
+        t = threading.Thread(target=_reap_loop, name='xray-heap-reaper', daemon=True)
+        self._reap_thread = t
+        t.start()
 
     def server_close(self):
+        self._reap_stop.set()
         super().server_close()
         observer = getattr(self, "telemetry", None)
         if observer is not None:
@@ -1850,12 +2161,17 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         with self._inflight_lock:
             self._inflight += 1
             self._idle.clear()
+            self._last_request_start = time.monotonic()
 
     def request_finished(self):
+        went_idle = False
         with self._inflight_lock:
             self._inflight -= 1
             if self._inflight <= 0:
                 self._idle.set()
+                went_idle = True
+        if went_idle:
+            _trim_heap_when_idle()
 
     def inflight(self):
         """Number of handler threads currently executing a request."""

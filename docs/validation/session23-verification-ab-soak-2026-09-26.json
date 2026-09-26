@@ -1,0 +1,20 @@
+{
+ "baseline_d12470d": {
+  "runs": 10,
+  "pass": 6,
+  "p50_median": 88.59,
+  "p95_median": 171.09,
+  "p99_median": 207.19,
+  "rps_median": 819.2,
+  "total_requests": 1425
+ },
+ "fix_3ffe251": {
+  "runs": 10,
+  "pass": 10,
+  "p50_median": 90.13,
+  "p95_median": 171.69,
+  "p99_median": 209.88,
+  "rps_median": 821.3,
+  "total_requests": 1425
+ }
+}

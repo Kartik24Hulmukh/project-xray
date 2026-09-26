@@ -106,6 +106,7 @@ class TestReadyzAuditCache(unittest.TestCase):
         import sqlite3
         from app import audit
         raw = sqlite3.connect(':memory:')
+        self.addCleanup(raw.close)
         raw.row_factory = sqlite3.Row
         raw.execute(
             'CREATE TABLE audit_events(id INTEGER PRIMARY KEY AUTOINCREMENT,'

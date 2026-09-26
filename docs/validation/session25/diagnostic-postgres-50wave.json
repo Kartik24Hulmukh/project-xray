@@ -1,0 +1,665 @@
+{
+  "timestamp": "2026-09-26T13:05:38Z",
+  "scope": "synthetic 120-persona local concurrency test; not measured 100x production load",
+  "backend": "postgres",
+  "seed": 20260925,
+  "personas_emulated": 120,
+  "concurrency": 100,
+  "total_requests": 14250,
+  "duration_seconds": 32.904,
+  "throughput_rps": 433.1,
+  "latency_ms": {
+    "p50": 160.94,
+    "p95": 325.44,
+    "p99": 455.61,
+    "min": 0.7,
+    "max": 793.99
+  },
+  "status_distribution": {
+    "404": 3750,
+    "200": 6750,
+    "201": 2250,
+    "400": 750,
+    "401": 750
+  },
+  "operational_baselines": {
+    "recovery_per_wave": [
+      {
+        "wave": 1,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.0529523715376854
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.162824384868145
+        }
+      },
+      {
+        "wave": 2,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.182342879474163
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.398335374891758
+        }
+      },
+      {
+        "wave": 3,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9763231500983238
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.9725849851965904
+        }
+      },
+      {
+        "wave": 4,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.5176841989159584
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 3.11838835477829
+        }
+      },
+      {
+        "wave": 5,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.756971538066864
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.035815268754959
+        }
+      },
+      {
+        "wave": 6,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8799917995929718
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.920965500175953
+        }
+      },
+      {
+        "wave": 7,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.7024407386779785
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 3.016198053956032
+        }
+      },
+      {
+        "wave": 8,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.002741977572441
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.263016067445278
+        }
+      },
+      {
+        "wave": 9,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.6991717964410782
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.9699383303523064
+        }
+      },
+      {
+        "wave": 10,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.4528241008520126
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.2727148607373238
+        }
+      },
+      {
+        "wave": 11,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.0404828935861588
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.572145313024521
+        }
+      },
+      {
+        "wave": 12,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8175615221261978
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.6991542652249336
+        }
+      },
+      {
+        "wave": 13,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.632574014365673
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.667997032403946
+        }
+      },
+      {
+        "wave": 14,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.4106044545769691
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.6346463710069656
+        }
+      },
+      {
+        "wave": 15,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.103302463889122
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.784496173262596
+        }
+      },
+      {
+        "wave": 16,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.110682263970375
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 3.1508971005678177
+        }
+      },
+      {
+        "wave": 17,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9252624586224556
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.073424868285656
+        }
+      },
+      {
+        "wave": 18,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8123423904180527
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.0691044628620148
+        }
+      },
+      {
+        "wave": 19,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.1851722374558449
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.3630252107977867
+        }
+      },
+      {
+        "wave": 20,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.1089332401752472
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 3.2570380717515945
+        }
+      },
+      {
+        "wave": 21,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.6262008100748062
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.6865245997905731
+        }
+      },
+      {
+        "wave": 22,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.6758915260434151
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.5930542722344398
+        }
+      },
+      {
+        "wave": 23,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.90838223695755
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 3.308678977191448
+        }
+      },
+      {
+        "wave": 24,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.956142321228981
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.9212448969483376
+        }
+      },
+      {
+        "wave": 25,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.3246238231658936
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 3.2877186313271523
+        }
+      },
+      {
+        "wave": 26,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.0966630652546883
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.635345794260502
+        }
+      },
+      {
+        "wave": 27,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9371722117066383
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.8969345837831497
+        }
+      },
+      {
+        "wave": 28,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.2834332883358002
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.069304697215557
+        }
+      },
+      {
+        "wave": 29,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.2945234775543213
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.009755000472069
+        }
+      },
+      {
+        "wave": 30,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.303163357079029
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.9495049491524696
+        }
+      },
+      {
+        "wave": 31,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.7432717829942703
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.8242644146084785
+        }
+      },
+      {
+        "wave": 32,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.149832271039486
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.598483882844448
+        }
+      },
+      {
+        "wave": 33,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9639635682106018
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.6188865303993225
+        }
+      },
+      {
+        "wave": 34,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.574801117181778
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.7421655356884003
+        }
+      },
+      {
+        "wave": 35,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.1929627507925034
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.9913455471396446
+        }
+      },
+      {
+        "wave": 36,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.3789236545562744
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.47245654463768
+        }
+      },
+      {
+        "wave": 37,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9356122463941574
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.153766341507435
+        }
+      },
+      {
+        "wave": 38,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8079120889306068
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.8253745511174202
+        }
+      },
+      {
+        "wave": 39,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.6909007206559181
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.101096324622631
+        }
+      },
+      {
+        "wave": 40,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8414918556809425
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.8862346187233925
+        }
+      },
+      {
+        "wave": 41,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8844425901770592
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.381245605647564
+        }
+      },
+      {
+        "wave": 42,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.7782913744449615
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.5366172194480896
+        }
+      },
+      {
+        "wave": 43,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8777119219303131
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.8625948578119278
+        }
+      },
+      {
+        "wave": 44,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8887024596333504
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.1334365010261536
+        }
+      },
+      {
+        "wave": 45,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.4249123632907867
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.3264260962605476
+        }
+      },
+      {
+        "wave": 46,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8379416540265083
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.7693443223834038
+        }
+      },
+      {
+        "wave": 47,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.271313987672329
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 3.416367806494236
+        }
+      },
+      {
+        "wave": 48,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8512819185853004
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.2077530845999718
+        }
+      },
+      {
+        "wave": 49,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.80152228474617
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.1795546635985374
+        }
+      },
+      {
+        "wave": 50,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.054602675139904
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.8659541383385658
+        }
+      }
+    ],
+    "every_wave_recovers_sub_200ms": true,
+    "zero_unhandled_panics": true,
+    "no_server_crash": true,
+    "tracebacks_in_log": 0,
+    "peak_rss_kb": 54552,
+    "peak_rss_bounded_128mb": true,
+    "rss_floor_kb": 38876,
+    "startup_ready_s": 0.325,
+    "rss_ceiling_kb": 54552,
+    "rss_settled_kb": 51068,
+    "rss_growth_after_recovery_kb": 12192,
+    "rss_sampled_min_kb": 38876,
+    "rss_sampled_max_kb": 55324,
+    "rss_samples": 2783,
+    "rss_settled_bounded_128mb": true,
+    "waves": 50,
+    "rss_settled_per_wave_kb": [
+      41912,
+      42916,
+      43504,
+      43936,
+      44312,
+      44780,
+      45160,
+      45652,
+      46072,
+      46600,
+      47044,
+      47432,
+      47820,
+      48448,
+      49176,
+      49776,
+      50572,
+      50956,
+      51412,
+      52456,
+      52656,
+      54016,
+      53212,
+      52768,
+      52432,
+      51900,
+      51708,
+      51248,
+      51276,
+      50940,
+      50828,
+      51108,
+      50896,
+      50712,
+      50940,
+      51076,
+      51188,
+      51028,
+      50700,
+      50916,
+      50872,
+      50948,
+      50576,
+      50616,
+      50704,
+      50800,
+      50928,
+      50752,
+      50904,
+      51068
+    ],
+    "rss_wave_growth_kb": 9156,
+    "rss_no_unbounded_growth": false,
+    "health_recovery_ms": 1.632574014365673,
+    "health_recovery_sub_200ms": true,
+    "ready_recovery_ms": 3.416367806494236,
+    "ready_recovery_sub_200ms": true,
+    "readyz_probes_total": 1500,
+    "readyz_probes_expected": 1500,
+    "readyz_status_breakdown": {
+      "200": 1500
+    },
+    "readyz_reason_breakdown": {
+      "ok": 1500
+    },
+    "readyz_unexpected_status": [],
+    "readyz_unexpected_reasons": [],
+    "readyz_determinism_invariant": true
+  },
+  "pass": false
+}

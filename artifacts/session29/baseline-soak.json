@@ -1,0 +1,142 @@
+{
+  "timestamp": "2026-09-26T14:20:49Z",
+  "scope": "synthetic 120-persona local concurrency test; not measured 100x production load",
+  "backend": "sqlite",
+  "python": "3.14.6",
+  "platform": "Linux-6.8.0-100-generic-x86_64-with-glibc2.41",
+  "malloc_arena_max": null,
+  "source_sha": "1990cd1d659bbd86e61860899d6c0814ddc4b561",
+  "working_tree_dirty": false,
+  "seed": 20260925,
+  "personas_emulated": 120,
+  "concurrency": 100,
+  "total_requests": 1710,
+  "duration_seconds": 2.676,
+  "throughput_rps": 639.0,
+  "latency_ms": {
+    "p50": 109.44,
+    "p95": 204.62,
+    "p99": 279.69,
+    "min": 0.65,
+    "max": 386.39
+  },
+  "status_distribution": {
+    "404": 450,
+    "200": 810,
+    "201": 270,
+    "400": 90,
+    "401": 90
+  },
+  "operational_baselines": {
+    "recovery_per_wave": [
+      {
+        "wave": 1,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9355396032333374
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.7291493713855743
+        }
+      },
+      {
+        "wave": 2,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.1162571609020233
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.1047443151474
+        }
+      },
+      {
+        "wave": 3,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 48.72456192970276
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.511797308921814
+        }
+      },
+      {
+        "wave": 4,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.0675936937332153
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.3617835938930511
+        }
+      },
+      {
+        "wave": 5,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.7279366254806519
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.1666715145111084
+        }
+      },
+      {
+        "wave": 6,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.3112053275108337
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.859111875295639
+        }
+      }
+    ],
+    "every_wave_recovers_sub_200ms": true,
+    "zero_unhandled_panics": true,
+    "no_server_crash": true,
+    "tracebacks_in_log": 0,
+    "peak_rss_kb": 54772,
+    "peak_rss_bounded_128mb": true,
+    "rss_floor_kb": 32768,
+    "startup_ready_s": 0.321,
+    "rss_ceiling_kb": 54772,
+    "rss_settled_kb": 54772,
+    "rss_growth_after_recovery_kb": 22004,
+    "rss_sampled_min_kb": 32768,
+    "rss_sampled_max_kb": 56872,
+    "rss_samples": 227,
+    "rss_settled_bounded_128mb": true,
+    "waves": 6,
+    "rss_settled_per_wave_kb": [
+      50552,
+      53100,
+      53968,
+      54236,
+      54448,
+      54772
+    ],
+    "rss_wave_growth_kb": 4220,
+    "rss_no_unbounded_growth": true,
+    "health_recovery_ms": 48.72456192970276,
+    "health_recovery_sub_200ms": true,
+    "ready_recovery_ms": 2.859111875295639,
+    "ready_recovery_sub_200ms": true,
+    "readyz_probes_total": 180,
+    "readyz_probes_expected": 180,
+    "readyz_status_breakdown": {
+      "200": 180
+    },
+    "readyz_reason_breakdown": {
+      "ok": 180
+    },
+    "readyz_unexpected_status": [],
+    "readyz_unexpected_reasons": [],
+    "readyz_determinism_invariant": true
+  },
+  "pass": true
+}

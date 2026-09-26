@@ -16,6 +16,10 @@ Operational baselines enforced:
 from __future__ import annotations
 
 import argparse
+import platform
+from contextlib import contextmanager
+from collections import deque
+import uuid
 from datetime import datetime, timezone
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -91,22 +95,28 @@ class RssSampler(threading.Thread):
         super().__init__(name="rss-sampler", daemon=True)
         self.pid = pid
         self.interval = interval
-        self.samples_kb: list[int] = []
-        self._stop = threading.Event()
+        self.samples_kb = deque(maxlen=4096)
+        self.sample_count = 0
+        self.sample_min = 0
+        self.sample_max = 0
+        self._stop_event = threading.Event()
 
     def run(self) -> None:
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             value = get_current_rss_kb(self.pid)
             if value > 0:
                 self.samples_kb.append(value)
-            self._stop.wait(self.interval)
+                self.sample_count += 1
+                self.sample_min = min(self.sample_min or value, value)
+                self.sample_max = max(self.sample_max, value)
+            self._stop_event.wait(self.interval)
 
     def stop(self) -> dict:
-        self._stop.set()
+        self._stop_event.set()
         self.join(timeout=2.0)
         if not self.samples_kb:
             return {"samples": 0, "min_kb": 0, "max_kb": 0}
-        return {"samples": len(self.samples_kb), "min_kb": min(self.samples_kb), "max_kb": max(self.samples_kb)}
+        return {"samples": self.sample_count, "min_kb": self.sample_min, "max_kb": self.sample_max}
 
 
 def get_peak_rss_kb(pid: int) -> int:
@@ -308,6 +318,54 @@ def readyz_invariant(status_counts: dict, reason_counts: dict, expected_total: i
     }
 
 
+def recovery_probe(base_url, path):
+    """Measure a single post-wave response, fail closed on any transport error."""
+    started = time.perf_counter()
+    try:
+        with urllib.request.urlopen(base_url + path, timeout=2.0) as response:
+            status = response.status
+    except Exception:
+        status = -1
+    return {"status": status, "latency_ms": (time.perf_counter() - started) * 1000}
+
+
+def recovery_passes(waves):
+    return bool(waves) and all(
+        probe["status"] == 200 and 0 <= probe["latency_ms"] < 200
+        for wave in waves for probe in (wave["healthz"], wave["readyz"]))
+
+
+@contextmanager
+def isolated_database(backend):
+    """PG is opt-in, loopback only, and always uses a new disposable database."""
+    if backend == "sqlite":
+        yield None
+        return
+    import psycopg2
+    from psycopg2 import sql
+    from psycopg2.extensions import parse_dsn, make_dsn
+    admin_url = os.environ.get("XRAY_TORTURE_PG_ADMIN_URL", "")
+    params = parse_dsn(admin_url) if admin_url else {}
+    if params.get("host") not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("PostgreSQL torture requires an explicit loopback admin URL")
+    name = "xray_torture_" + uuid.uuid4().hex
+    conn = psycopg2.connect(admin_url, connect_timeout=5)
+    conn.autocommit = True
+    created = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+            created = True
+        yield make_dsn(admin_url, dbname=name)
+    finally:
+        try:
+            if created:
+                with conn.cursor() as cur:
+                    cur.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+        finally:
+            conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", default="docs/validation/session14-human-torture-2026-09-19.json")
@@ -316,9 +374,16 @@ def main():
     parser.add_argument("--waves", type=int, default=1,
                         help="re-run the full persona set N times in the same server process; "
                              "settled RSS is recorded after each wave to prove memory does not keep climbing")
+    parser.add_argument("--backend", choices=("sqlite", "postgres"), default="sqlite")
     args = parser.parse_args()
+    if not 1 <= args.waves <= 50 or not 1 <= args.concurrency <= 1000:
+        parser.error("waves must be 1..50 and concurrency 1..1000")
+    with isolated_database(args.backend) as database_url:
+        run(args, database_url)
 
-    rng = random.Random(args.seed)
+
+def run(args, database_url=None):
+
     personas = generate_personas()
     assert len(personas) >= 100, f"Must have >= 100 personas, got {len(personas)}"
 
@@ -343,225 +408,251 @@ def main():
             "AUTH_READ_RATE_LIMIT": "100000",
             "EXPENSIVE_WRITE_RATE_LIMIT": "100000",
         }
-        env.pop("DATABASE_URL", None)
+        for key in ("DATABASE_URL", "DB_HOST", "DB_NAME", "DB_USERNAME", "DB_PASSWORD",
+                    "XRAY_TORTURE_PG_ADMIN_URL"):
+            env.pop(key, None)
+        if database_url:
+            env["DATABASE_URL"] = database_url
+            env["DB_POOL_MAX"] = "5"
         env.pop("XRAY_MAINTENANCE_MODE", None)
         log_file = open(Path(directory) / "server.log", "w", encoding="utf-8")
         proc = subprocess.Popen([sys.executable, "app/server.py"], cwd=ROOT, env=env,
                                 stdout=log_file, stderr=log_file)
 
+        sampler = None
         try:
-            startup_ready_s = wait_ready(base_url, deadline_s=10.0, proc=proc)
-        except RuntimeError:
-            proc.kill()
-            proc.wait(timeout=3)
-            log_file.close()
-            raise
+            try:
+                startup_ready_s = wait_ready(base_url, deadline_s=10.0, proc=proc)
+            except RuntimeError:
+                proc.kill()
+                proc.wait(timeout=3)
+                log_file.close()
+                raise
 
-        # RAM floor: resident set right after readiness, before any load.
-        rss_floor_kb = get_current_rss_kb(proc.pid)
-        sampler = RssSampler(proc.pid)
-        sampler.start()
+            # RAM floor: resident set right after readiness, before any load.
+            rss_floor_kb = get_current_rss_kb(proc.pid)
+            sampler = RssSampler(proc.pid)
+            sampler.start()
 
-        # Seed initial project for readers
-        seed_req = urllib.request.Request(
-            f"{base_url}/api/projects",
-            data=json.dumps({
-                "title": "Seed Foundation Project",
-                "authority": "Maharashtra Urban Infrastructure",
-                "budget_inr": 50000000,
-                "synthetic": True,
-            }).encode("utf-8"),
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}", "Idempotency-Key": "seed_01"},
-            method="POST"
-        )
-        with urllib.request.urlopen(seed_req, timeout=5.0) as resp:
-            assert resp.status in (200, 201)
+            # Seed initial project for readers
+            seed_req = urllib.request.Request(
+                f"{base_url}/api/projects",
+                data=json.dumps({
+                    "title": "Seed Foundation Project",
+                    "authority": "Maharashtra Urban Infrastructure",
+                    "budget_inr": 50000000,
+                    "synthetic": True,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}", "Idempotency-Key": "seed_01"},
+                method="POST"
+            )
+            with urllib.request.urlopen(seed_req, timeout=5.0) as resp:
+                assert resp.status in (200, 201)
 
-        print(f"[*] Server ready. Starting concurrent execution of {len(personas)} human personas across {args.concurrency} workers...")
+            print(f"[*] Server ready. Starting concurrent execution of {len(personas)} human personas across {args.concurrency} workers...")
 
-        t_torture_start = time.perf_counter()
-        all_action_results = []
-        all_latencies = []
-        status_counts = {}
-        readyz_status_counts = {}
-        readyz_reason_counts = {}
+            t_torture_start = time.perf_counter()
+            all_latencies = []
+            status_counts = {}
+            readyz_status_counts = {}
+            readyz_reason_counts = {}
 
-        def tally(act):
-            """Single-threaded tally of one persona action (main thread only)."""
-            code = act["status"]
-            status_counts[code] = status_counts.get(code, 0) + 1
-            all_latencies.append(act["latency_ms"])
-            if act.get("probe") == "readyz":
-                readyz_status_counts[code] = readyz_status_counts.get(code, 0) + 1
-                why = act.get("reason", "unknown")
-                readyz_reason_counts[why] = readyz_reason_counts.get(why, 0) + 1
+            def tally(act):
+                """Single-threaded tally of one persona action (main thread only)."""
+                code = act["status"]
+                status_counts[code] = status_counts.get(code, 0) + 1
+                all_latencies.append(act["latency_ms"])
+                if act.get("probe") == "readyz":
+                    readyz_status_counts[code] = readyz_status_counts.get(code, 0) + 1
+                    why = act.get("reason", "unknown")
+                    readyz_reason_counts[why] = readyz_reason_counts.get(why, 0) + 1
 
-        with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-            futures = [pool.submit(run_persona_action, base_url, p, token, random.Random(args.seed + p["persona_id"]))
-                       for p in personas]
-            for f in as_completed(futures):
-                res = f.result()
-                all_action_results.append(res)
-                for act in res["actions"]:
-                    tally(act)
-
-        torture_duration = time.perf_counter() - t_torture_start
-        peak_rss_kb = get_peak_rss_kb(proc.pid)
-        sampled = sampler.stop()
-
-        # Post-torture latency recovery verification
-        rec_t0 = time.perf_counter()
-        with urllib.request.urlopen(f"{base_url}/healthz", timeout=2.0) as r:
-            health_rec_ms = (time.perf_counter() - rec_t0) * 1000.0
-            health_rec_status = r.status
-
-        rec_t1 = time.perf_counter()
-        with urllib.request.urlopen(f"{base_url}/readyz", timeout=2.0) as r:
-            ready_rec_ms = (time.perf_counter() - rec_t1) * 1000.0
-            ready_rec_status = r.status
-
-        # RAM settled: resident set after the recovery probes, before shutdown.
-        rss_settled_kb = get_current_rss_kb(proc.pid)
-
-        # Extra waves in the SAME process: settled RSS after each wave must not keep climbing.
-        settled_per_wave_kb = [rss_settled_kb]
-        for wave in range(2, max(1, args.waves) + 1):
-            wave_t0 = time.perf_counter()
             with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-                futures = [pool.submit(run_persona_action, base_url, p, token,
-                                       random.Random(args.seed + p["persona_id"] + wave * 100003))
+                futures = [pool.submit(run_persona_action, base_url, p, token, random.Random(args.seed + p["persona_id"]))
                            for p in personas]
                 for f in as_completed(futures):
                     res = f.result()
-                    all_action_results.append(res)
                     for act in res["actions"]:
                         tally(act)
-            torture_duration += time.perf_counter() - wave_t0  # throughput covers every wave
-            with urllib.request.urlopen(f"{base_url}/readyz", timeout=2.0) as r:
-                ready_rec_status = r.status if r.status != 200 else ready_rec_status
-            settled_per_wave_kb.append(get_current_rss_kb(proc.pid))
-        peak_rss_kb = max(peak_rss_kb, get_peak_rss_kb(proc.pid))
-        rss_settled_kb = settled_per_wave_kb[-1]
-        # Leak gate: growth from the first settled value to the last is bounded (8 MiB) once
-        # the worker pool and allocator arenas are warm. Single-wave runs pass trivially.
-        rss_wave_growth_kb = settled_per_wave_kb[-1] - settled_per_wave_kb[0]
-        rss_no_unbounded_growth = rss_wave_growth_kb <= 8 * 1024
-        rss_growth_kb = max(0, rss_settled_kb - rss_floor_kb)
 
-        server_alive = (proc.poll() is None)
-        proc.terminate()
-        try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        log_file.close()
+            torture_duration = time.perf_counter() - t_torture_start
+            peak_rss_kb = get_peak_rss_kb(proc.pid)
 
-        # Check server log for unexpected exceptions / tracebacks
-        with open(Path(directory) / "server.log", "r", encoding="utf-8") as f:
-            log_content = f.read()
-        tracebacks = log_content.count("Traceback (most recent call last):")
+            recovery_waves = [{"wave": 1, "healthz": recovery_probe(base_url, "/healthz"),
+                               "readyz": recovery_probe(base_url, "/readyz")}]
 
-        # Calculate statistics
-        sorted_lat = sorted(all_latencies)
-        p50 = statistics.median(sorted_lat) if sorted_lat else 0.0
-        p95 = sorted_lat[int(len(sorted_lat) * 0.95)] if sorted_lat else 0.0
-        p99 = sorted_lat[int(len(sorted_lat) * 0.99)] if sorted_lat else 0.0
+            # RAM settled: resident set after the recovery probes, before shutdown.
+            rss_settled_kb = get_current_rss_kb(proc.pid)
 
-        # Fixed-seed determinism: the persona set decides how many /readyz probes
-        # are issued, so 200 + 503 is a constant and every 503 must be an
-        # allow-listed fail-closed reason.
-        readyz_probes_per_wave = sum(
-            1 for persona in personas
-            if persona.get("role") in ("lead_research_scientist", "principal_systems_architect")
-        )
-        readyz_expected = readyz_probes_per_wave * max(1, args.waves)
-        readyz = readyz_invariant(readyz_status_counts, readyz_reason_counts, readyz_expected)
+            # Extra waves in the SAME process: settled RSS after each wave must not keep climbing.
+            settled_per_wave_kb = [rss_settled_kb]
+            for wave in range(2, max(1, args.waves) + 1):
+                wave_t0 = time.perf_counter()
+                with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+                    futures = [pool.submit(run_persona_action, base_url, p, token,
+                                           random.Random(args.seed + p["persona_id"] + wave * 100003))
+                               for p in personas]
+                    for f in as_completed(futures):
+                        res = f.result()
+                        for act in res["actions"]:
+                            tally(act)
+                torture_duration += time.perf_counter() - wave_t0  # throughput covers every wave
+                recovery_waves.append({"wave": wave, "healthz": recovery_probe(base_url, "/healthz"),
+                                       "readyz": recovery_probe(base_url, "/readyz")})
+                settled_per_wave_kb.append(get_current_rss_kb(proc.pid))
+            sampled = sampler.stop()
+            health_rec_ms = max(w["healthz"]["latency_ms"] for w in recovery_waves)
+            ready_rec_ms = max(w["readyz"]["latency_ms"] for w in recovery_waves)
+            health_rec_status = 200 if all(w["healthz"]["status"] == 200 for w in recovery_waves) else -1
+            ready_rec_status = 200 if all(w["readyz"]["status"] == 200 for w in recovery_waves) else -1
+            peak_rss_kb = max(peak_rss_kb, get_peak_rss_kb(proc.pid))
+            rss_settled_kb = settled_per_wave_kb[-1]
+            # Leak gate: growth from the first settled value to the last is bounded (8 MiB) once
+            # the worker pool and allocator arenas are warm. Single-wave runs pass trivially.
+            rss_wave_growth_kb = settled_per_wave_kb[-1] - settled_per_wave_kb[0]
+            rss_no_unbounded_growth = rss_wave_growth_kb <= 8 * 1024
+            rss_growth_kb = max(0, rss_settled_kb - rss_floor_kb)
 
-        operational_baselines = {
-            "zero_unhandled_panics": (server_alive and tracebacks == 0),
-            "no_server_crash": server_alive,
-            "tracebacks_in_log": tracebacks,
-            "peak_rss_kb": peak_rss_kb,
-            "peak_rss_bounded_128mb": peak_rss_kb <= 128 * 1024,
-            "rss_floor_kb": rss_floor_kb,
-            "startup_ready_s": round(startup_ready_s, 3),
-            "rss_ceiling_kb": peak_rss_kb,
-            "rss_settled_kb": rss_settled_kb,
-            "rss_growth_after_recovery_kb": rss_growth_kb,
-            "rss_sampled_min_kb": sampled["min_kb"],
-            "rss_sampled_max_kb": sampled["max_kb"],
-            "rss_samples": sampled["samples"],
-            "rss_settled_bounded_128mb": rss_settled_kb <= 128 * 1024,
-            "waves": max(1, args.waves),
-            "rss_settled_per_wave_kb": settled_per_wave_kb,
-            "rss_wave_growth_kb": rss_wave_growth_kb,
-            "rss_no_unbounded_growth": rss_no_unbounded_growth,
-            "health_recovery_ms": health_rec_ms,
-            "health_recovery_sub_200ms": (health_rec_status == 200 and health_rec_ms < 200.0),
-            "ready_recovery_ms": ready_rec_ms,
-            "ready_recovery_sub_200ms": (ready_rec_status == 200 and ready_rec_ms < 200.0),
-            "readyz_probes_total": readyz["probes_total"],
-            "readyz_probes_expected": readyz["probes_expected"],
-            "readyz_status_breakdown": readyz["status_breakdown"],
-            "readyz_reason_breakdown": readyz["reason_breakdown"],
-            "readyz_unexpected_status": readyz["unexpected_status"],
-            "readyz_unexpected_reasons": readyz["unexpected_reasons"],
-            "readyz_determinism_invariant": readyz["holds"],
-        }
+            server_alive = (proc.poll() is None)
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            log_file.close()
 
-        all_baselines_pass = all([
-            operational_baselines["zero_unhandled_panics"],
-            operational_baselines["peak_rss_bounded_128mb"],
-            operational_baselines["rss_settled_bounded_128mb"],
-            operational_baselines["rss_no_unbounded_growth"],
-            operational_baselines["health_recovery_sub_200ms"],
-            operational_baselines["ready_recovery_sub_200ms"],
-            operational_baselines["readyz_determinism_invariant"],
-        ])
+            # Check server log for unexpected exceptions / tracebacks
+            with open(Path(directory) / "server.log", "r", encoding="utf-8") as f:
+                log_content = f.read()
+            tracebacks = log_content.count("Traceback (most recent call last):")
 
-        summary = {
-            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "scope": "100-persona human torture under 100x concurrency",
-            "seed": args.seed,
-            "personas_emulated": len(personas),
-            "concurrency": args.concurrency,
-            "total_requests": len(all_latencies),
-            "duration_seconds": round(torture_duration, 3),
-            "throughput_rps": round(len(all_latencies) / max(0.001, torture_duration), 1),
-            "latency_ms": {
-                "p50": round(p50, 2),
-                "p95": round(p95, 2),
-                "p99": round(p99, 2),
-                "min": round(sorted_lat[0], 2) if sorted_lat else 0.0,
-                "max": round(sorted_lat[-1], 2) if sorted_lat else 0.0,
-            },
-            "status_distribution": status_counts,
-            "operational_baselines": operational_baselines,
-            "pass": all_baselines_pass,
-        }
+            # Calculate statistics
+            sorted_lat = sorted(all_latencies)
+            p50 = statistics.median(sorted_lat) if sorted_lat else 0.0
+            p95 = sorted_lat[int(len(sorted_lat) * 0.95)] if sorted_lat else 0.0
+            p99 = sorted_lat[int(len(sorted_lat) * 0.99)] if sorted_lat else 0.0
 
-        out_path = ROOT / args.output
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2)
+            # Fixed-seed determinism: the persona set decides how many /readyz probes
+            # are issued, so 200 + 503 is a constant and every 503 must be an
+            # allow-listed fail-closed reason.
+            readyz_probes_per_wave = sum(
+                1 for persona in personas
+                if persona.get("role") in ("lead_research_scientist", "principal_systems_architect")
+            )
+            readyz_expected = readyz_probes_per_wave * max(1, args.waves)
+            readyz = readyz_invariant(readyz_status_counts, readyz_reason_counts, readyz_expected)
 
-        print(f"[*] Receipts written to {out_path}")
-        print(f"[*] Summary: {len(personas)} personas, {len(all_latencies)} requests in {torture_duration:.2f}s ({summary['throughput_rps']} rps)")
-        print(f"[*] Latency: P50={p50:.2f}ms, P95={p95:.2f}ms, P99={p99:.2f}ms | Peak RSS: {peak_rss_kb/1024:.1f} MiB")
-        print(f"[*] RAM floor={rss_floor_kb/1024:.1f} MiB, ceiling={peak_rss_kb/1024:.1f} MiB, settled={rss_settled_kb/1024:.1f} MiB "
-              f"(growth after recovery {rss_growth_kb/1024:.1f} MiB, {sampled['samples']} samples)")
-        if args.waves > 1:
-            print(f"[*] Waves={args.waves}: settled RSS per wave (MiB) = "
-                  f"{[round(v/1024,1) for v in settled_per_wave_kb]}, growth first->last {rss_wave_growth_kb/1024:.1f} MiB, "
-                  f"no_unbounded_growth={rss_no_unbounded_growth}")
-        print(f"[*] /readyz determinism: {readyz['probes_total']}/{readyz['probes_expected']} probes, "
-              f"statuses={readyz['status_breakdown']}, reasons={readyz['reason_breakdown']}, "
-              f"invariant_holds={readyz['holds']}")
-        print(f"[*] Health recovery: {health_rec_ms:.2f}ms, Ready recovery: {ready_rec_ms:.2f}ms")
-        print(f"[*] Operational baselines PASS: {all_baselines_pass}")
+            operational_baselines = {
+                "recovery_per_wave": recovery_waves,
+                "every_wave_recovers_sub_200ms": recovery_passes(recovery_waves),
+                "zero_unhandled_panics": (server_alive and tracebacks == 0),
+                "no_server_crash": server_alive,
+                "tracebacks_in_log": tracebacks,
+                "peak_rss_kb": peak_rss_kb,
+                "peak_rss_bounded_128mb": peak_rss_kb <= 128 * 1024,
+                "rss_floor_kb": rss_floor_kb,
+                "startup_ready_s": round(startup_ready_s, 3),
+                "rss_ceiling_kb": peak_rss_kb,
+                "rss_settled_kb": rss_settled_kb,
+                "rss_growth_after_recovery_kb": rss_growth_kb,
+                "rss_sampled_min_kb": sampled["min_kb"],
+                "rss_sampled_max_kb": sampled["max_kb"],
+                "rss_samples": sampled["samples"],
+                "rss_settled_bounded_128mb": rss_settled_kb <= 128 * 1024,
+                "waves": max(1, args.waves),
+                "rss_settled_per_wave_kb": settled_per_wave_kb,
+                "rss_wave_growth_kb": rss_wave_growth_kb,
+                "rss_no_unbounded_growth": rss_no_unbounded_growth,
+                "health_recovery_ms": health_rec_ms,
+                "health_recovery_sub_200ms": (health_rec_status == 200 and health_rec_ms < 200.0),
+                "ready_recovery_ms": ready_rec_ms,
+                "ready_recovery_sub_200ms": (ready_rec_status == 200 and ready_rec_ms < 200.0),
+                "readyz_probes_total": readyz["probes_total"],
+                "readyz_probes_expected": readyz["probes_expected"],
+                "readyz_status_breakdown": readyz["status_breakdown"],
+                "readyz_reason_breakdown": readyz["reason_breakdown"],
+                "readyz_unexpected_status": readyz["unexpected_status"],
+                "readyz_unexpected_reasons": readyz["unexpected_reasons"],
+                "readyz_determinism_invariant": readyz["holds"],
+            }
 
-        if not all_baselines_pass:
-            sys.exit(1)
+            all_baselines_pass = all([
+                operational_baselines["every_wave_recovers_sub_200ms"],
+                operational_baselines["zero_unhandled_panics"],
+                operational_baselines["peak_rss_bounded_128mb"],
+                operational_baselines["rss_settled_bounded_128mb"],
+                operational_baselines["rss_no_unbounded_growth"],
+                operational_baselines["health_recovery_sub_200ms"],
+                operational_baselines["ready_recovery_sub_200ms"],
+                operational_baselines["readyz_determinism_invariant"],
+            ])
+
+            summary = {
+                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "scope": "synthetic 120-persona local concurrency test; not measured 100x production load",
+                "backend": args.backend,
+                "python": platform.python_version(),
+                "platform": platform.platform(),
+                "malloc_arena_max": os.getenv("MALLOC_ARENA_MAX"),
+                "source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+                "working_tree_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT)),
+                "seed": args.seed,
+                "personas_emulated": len(personas),
+                "concurrency": args.concurrency,
+                "total_requests": len(all_latencies),
+                "duration_seconds": round(torture_duration, 3),
+                "throughput_rps": round(len(all_latencies) / max(0.001, torture_duration), 1),
+                "latency_ms": {
+                    "p50": round(p50, 2),
+                    "p95": round(p95, 2),
+                    "p99": round(p99, 2),
+                    "min": round(sorted_lat[0], 2) if sorted_lat else 0.0,
+                    "max": round(sorted_lat[-1], 2) if sorted_lat else 0.0,
+                },
+                "status_distribution": status_counts,
+                "operational_baselines": operational_baselines,
+                "pass": all_baselines_pass,
+            }
+
+            out_path = ROOT / args.output
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(summary, f, indent=2)
+
+            print(f"[*] Receipts written to {out_path}")
+            print(f"[*] Summary: {len(personas)} personas, {len(all_latencies)} requests in {torture_duration:.2f}s ({summary['throughput_rps']} rps)")
+            print(f"[*] Latency: P50={p50:.2f}ms, P95={p95:.2f}ms, P99={p99:.2f}ms | Peak RSS: {peak_rss_kb/1024:.1f} MiB")
+            print(f"[*] RAM floor={rss_floor_kb/1024:.1f} MiB, ceiling={peak_rss_kb/1024:.1f} MiB, settled={rss_settled_kb/1024:.1f} MiB "
+                  f"(growth after recovery {rss_growth_kb/1024:.1f} MiB, {sampled['samples']} samples)")
+            if args.waves > 1:
+                print(f"[*] Waves={args.waves}: settled RSS per wave (MiB) = "
+                      f"{[round(v/1024,1) for v in settled_per_wave_kb]}, growth first->last {rss_wave_growth_kb/1024:.1f} MiB, "
+                      f"no_unbounded_growth={rss_no_unbounded_growth}")
+            print(f"[*] /readyz determinism: {readyz['probes_total']}/{readyz['probes_expected']} probes, "
+                  f"statuses={readyz['status_breakdown']}, reasons={readyz['reason_breakdown']}, "
+                  f"invariant_holds={readyz['holds']}")
+            print(f"[*] Health recovery: {health_rec_ms:.2f}ms, Ready recovery: {ready_rec_ms:.2f}ms")
+            print(f"[*] Operational baselines PASS: {all_baselines_pass}")
+
+            if not all_baselines_pass:
+                sys.exit(1)
+        finally:
+            if sampler is not None and sampler.is_alive():
+                sampler.stop()
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=3)
+            log_file.close()
+            log_source = Path(directory) / "server.log"
+            log_target = (ROOT / args.output).with_suffix(".server.log")
+            log_target.parent.mkdir(parents=True, exist_ok=True)
+            if log_source.exists() and (sys.exc_info()[0] is not None):
+                log_target.write_bytes(log_source.read_bytes())
+
 
 
 if __name__ == "__main__":

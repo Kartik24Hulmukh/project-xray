@@ -1,0 +1,66 @@
+name: Nightly Determinism Soak
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  nightly-soak:
+    name: 30-wave determinism soak + live PostgreSQL torture
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: xray
+          POSTGRES_PASSWORD: xray_ci_password
+          POSTGRES_DB: xray_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U xray -d xray_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://xray:xray_ci_password@localhost:5432/xray_ci?sslmode=disable
+      DB_POOL_MAX: '5'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python3 -m pip install --requirement requirements.txt -q
+      - name: Apply PostgreSQL schema
+        run: |
+          python3 - <<'PY'
+          import os, psycopg2
+          from pathlib import Path
+          url = os.environ['DATABASE_URL']
+          schema = Path('db/schema_postgres.sql').read_text()
+          conn = psycopg2.connect(url)
+          conn.autocommit = True
+          cur = conn.cursor()
+          cur.execute(schema)
+          cur.close(); conn.close()
+          PY
+      - name: 30-wave determinism soak (SQLite + PostgreSQL)
+        run: |
+          mkdir -p artifacts
+          echo "Testing SQLite path..."
+          rm -f xray.db*
+          python3 scripts/human_persona_torture.py --seed 20260925 --concurrency 100 --waves 30
+          echo "SQLite soak complete."
+          echo "Testing PostgreSQL path..."
+          export TEST_POSTGRES=1
+          python3 scripts/human_persona_torture.py --seed 20260925 --concurrency 100 --waves 30
+          echo "PostgreSQL soak complete."
+      - name: Retain nightly soak evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nightly-soak-evidence
+          path: artifacts/
+          retention-days: 30

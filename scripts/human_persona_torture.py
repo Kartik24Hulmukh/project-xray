@@ -394,8 +394,8 @@ def main():
                              "settled RSS is recorded after each wave to prove memory does not keep climbing")
     parser.add_argument("--backend", choices=("sqlite", "postgres"), default="sqlite")
     args = parser.parse_args()
-    if not 1 <= args.waves <= 50 or not 1 <= args.concurrency <= 1000:
-        parser.error("waves must be 1..50 and concurrency 1..1000")
+    if not 1 <= args.waves <= 60 or not 1 <= args.concurrency <= 1000:
+        parser.error("waves must be 1..60 and concurrency 1..1000")
     with isolated_database(args.backend) as database_url:
         run(args, database_url)
 

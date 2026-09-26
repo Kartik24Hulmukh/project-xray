@@ -60,7 +60,7 @@ jobs:
           python3 --version > artifacts/nightly-soak/python.txt
           python3 -m pip freeze > artifacts/nightly-soak/dependencies.txt
           uname -a > artifacts/nightly-soak/kernel.txt
-      - name: Fixed-seed 20-wave soak, 120 synthetic personas and 100 workers
+      - name: Fixed-seed configurable-wave soak, 120 synthetic personas and 100 workers
         env:
           XRAY_TORTURE_PG_ADMIN_URL: postgresql://xray:xray_ci_password@127.0.0.1:5432/xray_ci?sslmode=disable
         run: |

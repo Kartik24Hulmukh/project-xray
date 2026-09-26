@@ -1,4 +1,6 @@
 """Failure-oriented contracts for full-wave soak evidence and DB isolation."""
+import contextlib
+import io
 import importlib.util
 import os
 import sys
@@ -73,6 +75,60 @@ class NightlyContractTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         text = (root / ".github/workflows/nightly-soak.yml").read_text()
         for expected in ("schedule:", "workflow_dispatch:", "[sqlite, postgres]",
-                         "--waves 20", "--seed 20260925", "timeout-minutes: 20",
+                         "--waves ${{ inputs.waves || '20' }}", "--seed 20260925", "timeout-minutes: 20",
                          "if: always()", "contents: read"):
             self.assertIn(expected, text)
+
+    def test_manual_wave_choices_preserve_default_gate(self):
+        text = (Path(__file__).resolve().parents[1] /
+                ".github/workflows/nightly-soak.yml").read_text()
+        dispatch = text.split("  workflow_dispatch:\n", 1)[1].split("  pull_request:", 1)[0]
+        self.assertIn("    inputs:\n      waves:", dispatch)
+        self.assertIn("        type: choice", dispatch)
+        self.assertIn("        default: '20'", dispatch)
+        self.assertIn("        options: ['20', '60']", dispatch)
+        # Scheduled/PR events have no inputs: the shared invocation falls back
+        # to 20, while manual runs may request the longer investigation.
+        commands = [line.strip() for line in text.splitlines()
+                    if line.strip().startswith("python3 scripts/human_persona_torture.py ")]
+        self.assertEqual(len(commands), 1)
+        self.assertIn("--waves ${{ inputs.waves || '20' }}", commands[0])
+        self.assertIn("--concurrency 100", commands[0])
+        self.assertIn("--backend ${{ matrix.backend }}", commands[0])
+
+
+class TortureCliTests(unittest.TestCase):
+    def invoke(self, *args):
+        with patch.object(sys, "argv", ["human_persona_torture.py", *args]):
+            with patch.object(h, "isolated_database") as database, patch.object(h, "run") as run:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    h.main()
+                return database, run
+
+    def test_workflow_wave_options_reach_runner(self):
+        for waves in ("20", "60"):
+            with self.subTest(waves=waves):
+                database, run = self.invoke("--waves", waves, "--concurrency", "100")
+                database.assert_called_once_with("sqlite")
+                run.assert_called_once()
+                self.assertEqual(run.call_args.args[0].waves, int(waves))
+
+    def test_cli_bounds_fail_before_database_or_runner(self):
+        for args in (("--waves", "0"), ("--waves", "61"), ("--waves", "-1"),
+                     ("--waves", "invalid"), ("--concurrency", "0"),
+                     ("--concurrency", "1001")):
+            with self.subTest(args=args), patch.object(sys, "argv", ["torture", *args]):
+                with patch.object(h, "isolated_database") as database, patch.object(h, "run") as run:
+                    with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                        h.main()
+                    self.assertEqual(error.exception.code, 2)
+                    database.assert_not_called()
+                    run.assert_not_called()
+
+    def test_cli_default_and_boundaries(self):
+        _, run = self.invoke()
+        self.assertEqual(run.call_args.args[0].waves, 1)
+        for waves, concurrency in (("1", "1"), ("60", "1000")):
+            _, run = self.invoke("--waves", waves, "--concurrency", concurrency)
+            self.assertEqual(run.call_args.args[0].waves, int(waves))
+            self.assertEqual(run.call_args.args[0].concurrency, int(concurrency))

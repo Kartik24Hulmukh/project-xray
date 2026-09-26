@@ -2010,6 +2010,52 @@ for _name in [n for n in vars(H) if n.startswith('do_')]:
 DEFAULT_EXEC_PARALLELISM = 4
 
 
+def _load_malloc_trim():
+    """Return glibc ``malloc_trim`` or None (musl/macOS/disabled).
+
+    Issue #73: settled RSS grew across soak waves on glibc because freed
+    per-thread arena pages were retained, not leaked (MALLOC_ARENA_MAX=2 made
+    the gate pass). Returning free pages to the OS when the server goes idle
+    fixes that at the source without a process-wide allocator env var, and a
+    genuine leak cannot be hidden by it: live allocations are never trimmed.
+    """
+    if os.getenv('XRAY_MALLOC_TRIM', '1').strip().lower() in ('0', 'false', 'no', 'off'):
+        return None
+    try:
+        import ctypes
+        import ctypes.util
+        libc = ctypes.CDLL(ctypes.util.find_library('c') or 'libc.so.6')
+        fn = libc.malloc_trim
+        fn.argtypes = [ctypes.c_size_t]
+        fn.restype = ctypes.c_int
+        return fn
+    except (OSError, AttributeError):
+        return None
+
+
+_MALLOC_TRIM = _load_malloc_trim()
+_TRIM_INTERVAL_S = float(os.getenv('XRAY_MALLOC_TRIM_INTERVAL_S', '0.25'))
+_trim_lock = threading.Lock()
+_last_trim = [0.0]
+
+
+def _trim_heap_when_idle():
+    """Rate-limited, non-blocking heap trim; never raises."""
+    if _MALLOC_TRIM is None or not _trim_lock.acquire(blocking=False):
+        return False
+    try:
+        now = time.monotonic()
+        if now - _last_trim[0] < _TRIM_INTERVAL_S:
+            return False
+        _last_trim[0] = now
+        _MALLOC_TRIM(0)
+        return True
+    except Exception:
+        return False
+    finally:
+        _trim_lock.release()
+
+
 class BoundedHTTPServer(ThreadingHTTPServer):
     """Bound active handlers; backpressure admission before creating threads.
 
@@ -2082,10 +2128,14 @@ class BoundedHTTPServer(ThreadingHTTPServer):
             self._idle.clear()
 
     def request_finished(self):
+        went_idle = False
         with self._inflight_lock:
             self._inflight -= 1
             if self._inflight <= 0:
                 self._idle.set()
+                went_idle = True
+        if went_idle:
+            _trim_heap_when_idle()
 
     def inflight(self):
         """Number of handler threads currently executing a request."""

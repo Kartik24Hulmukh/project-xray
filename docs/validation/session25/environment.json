@@ -1,0 +1,8 @@
+{
+  "python": "3.14.6",
+  "platform": "Linux-6.8.0-124-generic-x86_64-with-glibc2.41",
+  "seed": 20260925,
+  "base_sha": "a16cb9cdfb5105c2590a38b9974d8be4dc10c796",
+  "baseline_command": "python3 scripts/human_persona_torture.py --seed 20260925 --concurrency 100 --waves 5",
+  "baseline_concurrent_unit_suite": true
+}

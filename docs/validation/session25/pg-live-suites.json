@@ -1,0 +1,27 @@
+[
+  {
+    "suite": "test_postgres_live.py",
+    "exit_code": 0,
+    "output": "stgresLive.test_write_commit_roundtrip) ... ok\ntest_write_rollback_roundtrip (test_postgres_live.TestPostgresLive.test_write_rollback_roundtrip) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.017s\n\nOK\n"
+  },
+  {
+    "suite": "test_postgres_concurrency.py",
+    "exit_code": 0,
+    "output": "test_concurrent_appends_preserve_single_chain (test_postgres_concurrency.PostgresConcurrency.test_concurrent_appends_preserve_single_chain) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.109s\n\nOK\n"
+  },
+  {
+    "suite": "test_idempotency_recovery.py",
+    "exit_code": 0,
+    "output": "_ttl) ... ok\ntest_stuck_ttl_is_clamped_to_safe_floor (test_idempotency_recovery.TestIdempotencyRecovery.test_stuck_ttl_is_clamped_to_safe_floor) ... ok\n\n----------------------------------------------------------------------\nRan 9 tests in 0.573s\n\nOK\n"
+  },
+  {
+    "suite": "test_postgres_fencing.py",
+    "exit_code": 0,
+    "output": "reclaim_exactly_one_winner) ... ok\ntest_release_rejects_stale_lease (test_postgres_fencing.TestPostgresFencing.test_release_rejects_stale_lease) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.010s\n\nOK\n"
+  },
+  {
+    "suite": "test_postgres_reconcile.py",
+    "exit_code": 0,
+    "output": "ileTests.test_rotated_snapshot_is_fenced) ... ok\ntest_strict_boundaries (test_postgres_reconcile.PostgresReconcileTests.test_strict_boundaries) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 0.081s\n\nOK\n"
+  }
+]

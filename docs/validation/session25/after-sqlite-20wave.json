@@ -1,0 +1,308 @@
+{
+  "timestamp": "2026-09-26T13:04:01Z",
+  "scope": "synthetic 120-persona local concurrency test; not measured 100x production load",
+  "backend": "sqlite",
+  "seed": 20260925,
+  "personas_emulated": 120,
+  "concurrency": 100,
+  "total_requests": 5700,
+  "duration_seconds": 7.328,
+  "throughput_rps": 777.9,
+  "latency_ms": {
+    "p50": 95.05,
+    "p95": 178.75,
+    "p99": 221.11,
+    "min": 0.95,
+    "max": 328.14
+  },
+  "status_distribution": {
+    "200": 2678,
+    "404": 1500,
+    "201": 900,
+    "400": 300,
+    "401": 300,
+    "503": 22
+  },
+  "operational_baselines": {
+    "recovery_per_wave": [
+      {
+        "wave": 1,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.2530842795968056
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.3084161803126335
+        }
+      },
+      {
+        "wave": 2,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.18913222104311
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.095005474984646
+        }
+      },
+      {
+        "wave": 3,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8537815883755684
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.4509735628962517
+        }
+      },
+      {
+        "wave": 4,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9251125156879425
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.2047962993383408
+        }
+      },
+      {
+        "wave": 5,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8165137842297554
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.54145248234272
+        }
+      },
+      {
+        "wave": 6,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.2854328379034996
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.7513055354356766
+        }
+      },
+      {
+        "wave": 7,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9411629289388657
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.347673125565052
+        }
+      },
+      {
+        "wave": 8,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.2118741869926453
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.5935666635632515
+        }
+      },
+      {
+        "wave": 9,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.947742722928524
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.6842540353536606
+        }
+      },
+      {
+        "wave": 10,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.1230725795030594
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.6215834766626358
+        }
+      },
+      {
+        "wave": 11,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.5486832708120346
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 2.9946882277727127
+        }
+      },
+      {
+        "wave": 12,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9039817377924919
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.6033044084906578
+        }
+      },
+      {
+        "wave": 13,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.3035135343670845
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.5208739787340164
+        }
+      },
+      {
+        "wave": 14,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8945027366280556
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.5456341207027435
+        }
+      },
+      {
+        "wave": 15,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.7545221596956253
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.8356647342443466
+        }
+      },
+      {
+        "wave": 16,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.9430535137653351
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.5772534534335136
+        }
+      },
+      {
+        "wave": 17,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.7584616541862488
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.4738328754901886
+        }
+      },
+      {
+        "wave": 18,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 1.2912824749946594
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.9005043432116508
+        }
+      },
+      {
+        "wave": 19,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.8591525256633759
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.32664293050766
+        }
+      },
+      {
+        "wave": 20,
+        "healthz": {
+          "status": 200,
+          "latency_ms": 0.7414920255541801
+        },
+        "readyz": {
+          "status": 200,
+          "latency_ms": 1.430072821676731
+        }
+      }
+    ],
+    "every_wave_recovers_sub_200ms": true,
+    "zero_unhandled_panics": true,
+    "no_server_crash": true,
+    "tracebacks_in_log": 0,
+    "peak_rss_kb": 62124,
+    "peak_rss_bounded_128mb": true,
+    "rss_floor_kb": 38524,
+    "startup_ready_s": 0.166,
+    "rss_ceiling_kb": 62124,
+    "rss_settled_kb": 62124,
+    "rss_growth_after_recovery_kb": 23600,
+    "rss_sampled_min_kb": 38524,
+    "rss_sampled_max_kb": 63524,
+    "rss_samples": 686,
+    "rss_settled_bounded_128mb": true,
+    "waves": 20,
+    "rss_settled_per_wave_kb": [
+      56720,
+      58704,
+      59588,
+      60364,
+      60952,
+      61032,
+      61224,
+      61260,
+      61400,
+      61548,
+      61588,
+      61708,
+      61712,
+      61784,
+      61820,
+      61836,
+      61896,
+      61916,
+      62004,
+      62124
+    ],
+    "rss_wave_growth_kb": 5404,
+    "rss_no_unbounded_growth": true,
+    "health_recovery_ms": 1.5486832708120346,
+    "health_recovery_sub_200ms": true,
+    "ready_recovery_ms": 2.9946882277727127,
+    "ready_recovery_sub_200ms": true,
+    "readyz_probes_total": 600,
+    "readyz_probes_expected": 600,
+    "readyz_status_breakdown": {
+      "200": 578,
+      "503": 22
+    },
+    "readyz_reason_breakdown": {
+      "audit_verification_in_progress": 22,
+      "ok": 578
+    },
+    "readyz_unexpected_status": [],
+    "readyz_unexpected_reasons": [],
+    "readyz_determinism_invariant": true
+  },
+  "pass": true
+}

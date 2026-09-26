@@ -11,7 +11,7 @@ def append(c,event_id,actor,action,object_type,object_id,detail,created_at,key):
  c.execute('INSERT INTO audit_checkpoints(event_id,event_count,head_hash,signature,created_at) VALUES(?,?,?,?,?)',(event_id,count,head,signature,created_at));return head
 def verify(c,key):
  if getattr(c, '_is_pg', False):c.execute('SELECT pg_advisory_xact_lock(1481785689)')
- previous='';count=0
+ previous='';count=0;seen_event_ids=set()
  checkpoints={r['event_id']:r for r in c.execute('SELECT * FROM audit_checkpoints')}
  for r in c.execute('SELECT * FROM audit_events ORDER BY id'):
   count+=1;expected=event_hash(previous,r['event_id'],r['actor'],r['action'],r['object_type'],r['object_id'],r['detail'],r['created_at'])
@@ -20,8 +20,12 @@ def verify(c,key):
   if not cp or cp['event_count']!=count or cp['head_hash']!=expected:raise RuntimeError(f'audit checkpoint missing or inconsistent at id={r["id"]}')
   signature=checkpoint_signature(r['event_id'],count,expected,key)
   if not hmac.compare_digest(cp['signature'],signature):raise RuntimeError(f'audit checkpoint signature invalid at id={r["id"]}')
-  previous=expected
- if len(checkpoints)!=count:raise RuntimeError('orphan audit checkpoint detected')
+  previous=expected;seen_event_ids.add(r['event_id'])
+ # Orphan = a checkpoint with no surviving event. A bare cardinality
+ # comparison is not race-free: a writer that commits an (event,checkpoint)
+ # pair between the two reads below makes a healthy chain look tampered.
+ orphans=set(checkpoints)-seen_event_ids
+ if orphans:raise RuntimeError('orphan audit checkpoint detected')
  return {'events':count,'head':previous}
 
 
@@ -80,7 +84,16 @@ def verify_segment(c,key,start_id,previous,limit,count_offset):
 
 
 def verify_orphans(c,count):
- """Cardinality guard run once per completed streaming verification."""
- n=c.execute('SELECT COUNT(*) n FROM audit_checkpoints').fetchone()['n']
- if n!=count:raise RuntimeError('orphan audit checkpoint detected')
+ """Orphan guard run once per completed streaming verification.
+
+ An orphan is a checkpoint whose event no longer exists - that is what a
+ deletion-style tamper leaves behind. This used to be a cardinality equality
+ (checkpoints == events scanned), which is **not** race-free: writers append
+ an (event,checkpoint) pair while the streaming verification is in flight, so
+ a perfectly healthy instance raised 'orphan audit checkpoint detected' and
+ /readyz flapped to 503 with a false tamper alarm under concurrent load.
+ The anti-join is exact, concurrency-safe and still O(checkpoints).
+ """
+ n=c.execute('SELECT COUNT(*) n FROM audit_checkpoints cp LEFT JOIN audit_events e ON e.event_id=cp.event_id WHERE e.event_id IS NULL').fetchone()['n']
+ if n:raise RuntimeError('orphan audit checkpoint detected')
  return count

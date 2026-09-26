@@ -1297,6 +1297,8 @@ class H(BaseHTTPRequestHandler):
                     {
                         'status': 'not_ready',
                         'ready': False,
+                        'reason': 'maintenance_mode' if capability_policy.maintenance
+                                  else 'capability_policy_invalid',
                         'capabilities': capability_policy.as_public_dict(),
                     },
                     503,
@@ -1327,11 +1329,23 @@ class H(BaseHTTPRequestHandler):
                     },
                     503,
                 )
-            except Exception:
+            except Exception as exc:
+                # Fail closed, but never silently: the probe carries a
+                # machine-readable reason and the exception class (never its
+                # message, which may embed caller data) so that operators and
+                # the determinism gate can classify the answer.
+                print(json.dumps({
+                    'time': now(),
+                    'request_id': getattr(self, 'request_id', None),
+                    'message': 'readiness_dependency_check_failed',
+                    'error_class': type(exc).__name__,
+                }, separators=(',', ':')))
                 return self.out(
                     {
                         'status': 'not_ready',
                         'ready': False,
+                        'reason': 'dependency_check_failed',
+                        'error_class': type(exc).__name__,
                         'capabilities': capability_policy.as_public_dict(),
                     },
                     503,

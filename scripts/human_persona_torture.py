@@ -210,8 +210,9 @@ def run_persona_action(base_url: str, persona: dict, admin_token: str, rng: rand
 
     elif role == "lead_research_scientist":
         # Audit trail checks, deterministic replay assertions, readyz probes
-        s1, lat1, _ = req("/readyz")
-        results.append({"action": "probe_readyz", "status": s1, "latency_ms": lat1})
+        s1, lat1, b1 = req("/readyz")
+        results.append({"action": "probe_readyz", "status": s1, "latency_ms": lat1,
+                        "probe": "readyz", "reason": classify_reason(s1, b1)})
         s2, lat2, _ = req("/api/projects")
         results.append({"action": "list_projects", "status": s2, "latency_ms": lat2})
 
@@ -222,8 +223,9 @@ def run_persona_action(base_url: str, persona: dict, admin_token: str, rng: rand
         w3c = f"00-{trace_id}-{span_id}-01"
         s1, lat1, _ = req("/healthz", headers={"traceparent": w3c})
         results.append({"action": "w3c_healthz", "status": s1, "latency_ms": lat1})
-        s2, lat2, _ = req("/readyz", headers={"traceparent": w3c})
-        results.append({"action": "w3c_readyz", "status": s2, "latency_ms": lat2})
+        s2, lat2, b2 = req("/readyz", headers={"traceparent": w3c})
+        results.append({"action": "w3c_readyz", "status": s2, "latency_ms": lat2,
+                        "probe": "readyz", "reason": classify_reason(s2, b2)})
         s3, lat3, _ = req("/metrics", headers={"Authorization": f"Bearer {admin_token}"})
         results.append({"action": "scrape_metrics", "status": s3, "latency_ms": lat3})
 
@@ -259,6 +261,50 @@ def run_persona_action(base_url: str, persona: dict, admin_token: str, rng: rand
         "persona": name,
         "role": role,
         "actions": results,
+    }
+
+
+READYZ_ALLOWED_REASONS = frozenset({"audit_verification_in_progress"})
+
+
+def classify_reason(status: int, body: bytes) -> str:
+    """Return the machine-readable reason a readiness probe answered with.
+
+    200 -> "ok". A non-JSON or reason-less body is reported as "unparseable" /
+    "unknown" rather than being dropped, so a receipt can never silently hide a
+    non-deterministic failure mode.
+    """
+    if status == 200:
+        return "ok"
+    try:
+        payload = json.loads(bytes(body).decode("utf-8", "replace"))
+    except Exception:
+        return "unparseable"
+    if not isinstance(payload, dict):
+        return "unparseable"
+    reason = payload.get("reason")
+    return str(reason) if reason else "unknown"
+
+
+def readyz_invariant(status_counts: dict, reason_counts: dict, expected_total: int) -> dict:
+    """Fixed-seed determinism gate for /readyz.
+
+    The number of readiness probes issued is a function of the seed, so
+    200 + 503 must equal exactly that number, every status must be one of those
+    two, and every 503 must carry an allow-listed fail-closed reason.
+    """
+    total = sum(status_counts.values())
+    unexpected_status = sorted(s for s in status_counts if s not in (200, 503))
+    allowed = set(READYZ_ALLOWED_REASONS) | {"ok"}
+    unexpected_reasons = sorted(r for r in reason_counts if r not in allowed)
+    return {
+        "probes_total": total,
+        "probes_expected": expected_total,
+        "status_breakdown": {str(k): v for k, v in sorted(status_counts.items())},
+        "reason_breakdown": dict(sorted(reason_counts.items())),
+        "unexpected_status": unexpected_status,
+        "unexpected_reasons": unexpected_reasons,
+        "holds": (total == expected_total and not unexpected_status and not unexpected_reasons),
     }
 
 
@@ -337,6 +383,18 @@ def main():
         all_action_results = []
         all_latencies = []
         status_counts = {}
+        readyz_status_counts = {}
+        readyz_reason_counts = {}
+
+        def tally(act):
+            """Single-threaded tally of one persona action (main thread only)."""
+            code = act["status"]
+            status_counts[code] = status_counts.get(code, 0) + 1
+            all_latencies.append(act["latency_ms"])
+            if act.get("probe") == "readyz":
+                readyz_status_counts[code] = readyz_status_counts.get(code, 0) + 1
+                why = act.get("reason", "unknown")
+                readyz_reason_counts[why] = readyz_reason_counts.get(why, 0) + 1
 
         with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
             futures = [pool.submit(run_persona_action, base_url, p, token, random.Random(args.seed + p["persona_id"]))
@@ -345,9 +403,7 @@ def main():
                 res = f.result()
                 all_action_results.append(res)
                 for act in res["actions"]:
-                    s = act["status"]
-                    status_counts[s] = status_counts.get(s, 0) + 1
-                    all_latencies.append(act["latency_ms"])
+                    tally(act)
 
         torture_duration = time.perf_counter() - t_torture_start
         peak_rss_kb = get_peak_rss_kb(proc.pid)
@@ -379,9 +435,7 @@ def main():
                     res = f.result()
                     all_action_results.append(res)
                     for act in res["actions"]:
-                        s_ = act["status"]
-                        status_counts[s_] = status_counts.get(s_, 0) + 1
-                        all_latencies.append(act["latency_ms"])
+                        tally(act)
             torture_duration += time.perf_counter() - wave_t0  # throughput covers every wave
             with urllib.request.urlopen(f"{base_url}/readyz", timeout=2.0) as r:
                 ready_rec_status = r.status if r.status != 200 else ready_rec_status
@@ -413,6 +467,16 @@ def main():
         p95 = sorted_lat[int(len(sorted_lat) * 0.95)] if sorted_lat else 0.0
         p99 = sorted_lat[int(len(sorted_lat) * 0.99)] if sorted_lat else 0.0
 
+        # Fixed-seed determinism: the persona set decides how many /readyz probes
+        # are issued, so 200 + 503 is a constant and every 503 must be an
+        # allow-listed fail-closed reason.
+        readyz_probes_per_wave = sum(
+            1 for persona in personas
+            if persona.get("role") in ("lead_research_scientist", "principal_systems_architect")
+        )
+        readyz_expected = readyz_probes_per_wave * max(1, args.waves)
+        readyz = readyz_invariant(readyz_status_counts, readyz_reason_counts, readyz_expected)
+
         operational_baselines = {
             "zero_unhandled_panics": (server_alive and tracebacks == 0),
             "no_server_crash": server_alive,
@@ -436,6 +500,13 @@ def main():
             "health_recovery_sub_200ms": (health_rec_status == 200 and health_rec_ms < 200.0),
             "ready_recovery_ms": ready_rec_ms,
             "ready_recovery_sub_200ms": (ready_rec_status == 200 and ready_rec_ms < 200.0),
+            "readyz_probes_total": readyz["probes_total"],
+            "readyz_probes_expected": readyz["probes_expected"],
+            "readyz_status_breakdown": readyz["status_breakdown"],
+            "readyz_reason_breakdown": readyz["reason_breakdown"],
+            "readyz_unexpected_status": readyz["unexpected_status"],
+            "readyz_unexpected_reasons": readyz["unexpected_reasons"],
+            "readyz_determinism_invariant": readyz["holds"],
         }
 
         all_baselines_pass = all([
@@ -445,6 +516,7 @@ def main():
             operational_baselines["rss_no_unbounded_growth"],
             operational_baselines["health_recovery_sub_200ms"],
             operational_baselines["ready_recovery_sub_200ms"],
+            operational_baselines["readyz_determinism_invariant"],
         ])
 
         summary = {
@@ -482,6 +554,9 @@ def main():
             print(f"[*] Waves={args.waves}: settled RSS per wave (MiB) = "
                   f"{[round(v/1024,1) for v in settled_per_wave_kb]}, growth first->last {rss_wave_growth_kb/1024:.1f} MiB, "
                   f"no_unbounded_growth={rss_no_unbounded_growth}")
+        print(f"[*] /readyz determinism: {readyz['probes_total']}/{readyz['probes_expected']} probes, "
+              f"statuses={readyz['status_breakdown']}, reasons={readyz['reason_breakdown']}, "
+              f"invariant_holds={readyz['holds']}")
         print(f"[*] Health recovery: {health_rec_ms:.2f}ms, Ready recovery: {ready_rec_ms:.2f}ms")
         print(f"[*] Operational baselines PASS: {all_baselines_pass}")
 

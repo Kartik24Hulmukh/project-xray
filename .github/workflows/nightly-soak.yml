@@ -1,0 +1,68 @@
+name: Nightly deterministic soak
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/nightly-soak.yml'
+      - 'scripts/human_persona_torture.py'
+      - 'tests/test_torture*.py'
+      - 'app/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
+permissions:
+  contents: read
+concurrency:
+  group: nightly-soak-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  soak:
+    name: soak-${{ matrix.backend }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: xray
+          POSTGRES_PASSWORD: xray_ci_password
+          POSTGRES_DB: xray_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U xray -d xray_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.13'
+          cache: pip
+      - run: python3 -m pip install --requirement requirements.txt
+      - name: Record exact environment and source
+        run: |
+          mkdir -p artifacts/nightly-soak
+          git rev-parse HEAD > artifacts/nightly-soak/commit.txt
+          python3 --version > artifacts/nightly-soak/python.txt
+          python3 -m pip freeze > artifacts/nightly-soak/dependencies.txt
+          uname -a > artifacts/nightly-soak/kernel.txt
+      - name: Fixed-seed 20-wave soak, 120 synthetic personas and 100 workers
+        env:
+          XRAY_TORTURE_PG_ADMIN_URL: postgresql://xray:xray_ci_password@127.0.0.1:5432/xray_ci?sslmode=disable
+        run: |
+          set -o pipefail
+          python3 scripts/human_persona_torture.py --backend ${{ matrix.backend }} --seed 20260925 --concurrency 100 --waves 20 --output artifacts/nightly-soak/receipt.json 2>&1 | tee artifacts/nightly-soak/run.log
+      - name: Retain receipts even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nightly-soak-${{ matrix.backend }}-${{ github.run_id }}
+          path: artifacts/nightly-soak/
+          retention-days: 30

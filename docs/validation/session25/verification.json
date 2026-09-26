@@ -1,0 +1,117 @@
+{
+  "base_sha": "a16cb9cdfb5105c2590a38b9974d8be4dc10c796",
+  "implementation_sha": "572262b",
+  "unit_runs": {
+    "baseline-unit": [
+      "Ran 446 tests in 43.124s",
+      "OK (skipped=19)"
+    ],
+    "after-unit": [
+      "Ran 454 tests in 61.804s",
+      "OK (skipped=19)"
+    ],
+    "final-unit": [
+      "Ran 454 tests in 46.055s",
+      "OK (skipped=19)"
+    ],
+    "committed-unit": [
+      "Ran 454 tests in 42.775s",
+      "OK (skipped=19)"
+    ]
+  },
+  "browser": {
+    "status": "ok",
+    "project_id": "prj_8f512b69f614480e"
+  },
+  "e2e": {
+    "status": "ok",
+    "project_id": "prj_cca2c6eebdc7441c",
+    "restart": "passed",
+    "restore": "passed",
+    "report": "passed",
+    "rti": "passed",
+    "capsule": "passed",
+    "audit": "passed",
+    "static_assets": "passed"
+  },
+  "new_targeted_tests": "terminism.ReadyzInvariantTests.test_unlisted_503_reason_breaks_invariant) ... ok\n\n----------------------------------------------------------------------\nRan 28 tests in 0.092s\n\nOK\n",
+  "postgres_suites": [
+    {
+      "suite": "test_postgres_live.py",
+      "exit_code": 0,
+      "output": "stgresLive.test_write_commit_roundtrip) ... ok\ntest_write_rollback_roundtrip (test_postgres_live.TestPostgresLive.test_write_rollback_roundtrip) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.017s\n\nOK\n"
+    },
+    {
+      "suite": "test_postgres_concurrency.py",
+      "exit_code": 0,
+      "output": "test_concurrent_appends_preserve_single_chain (test_postgres_concurrency.PostgresConcurrency.test_concurrent_appends_preserve_single_chain) ... ok\n\n----------------------------------------------------------------------\nRan 1 test in 0.109s\n\nOK\n"
+    },
+    {
+      "suite": "test_idempotency_recovery.py",
+      "exit_code": 0,
+      "output": "_ttl) ... ok\ntest_stuck_ttl_is_clamped_to_safe_floor (test_idempotency_recovery.TestIdempotencyRecovery.test_stuck_ttl_is_clamped_to_safe_floor) ... ok\n\n----------------------------------------------------------------------\nRan 9 tests in 0.573s\n\nOK\n"
+    },
+    {
+      "suite": "test_postgres_fencing.py",
+      "exit_code": 0,
+      "output": "reclaim_exactly_one_winner) ... ok\ntest_release_rejects_stale_lease (test_postgres_fencing.TestPostgresFencing.test_release_rejects_stale_lease) ... ok\n\n----------------------------------------------------------------------\nRan 3 tests in 0.010s\n\nOK\n"
+    },
+    {
+      "suite": "test_postgres_reconcile.py",
+      "exit_code": 0,
+      "output": "ileTests.test_rotated_snapshot_is_fenced) ... ok\ntest_strict_boundaries (test_postgres_reconcile.PostgresReconcileTests.test_strict_boundaries) ... ok\n\n----------------------------------------------------------------------\nRan 10 tests in 0.081s\n\nOK\n"
+    }
+  ],
+  "ci_observation": [
+    {
+      "name": "soak-postgres",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "name": "soak-sqlite",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "name": "postgres",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "container-smoke",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "name": "blocking-security",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "name": "unit-and-rehearsal",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "name": "GitGuardian Security Checks",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "name": "container-smoke",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "name": "postgres",
+      "status": "in_progress",
+      "conclusion": null
+    },
+    {
+      "name": "unit-and-rehearsal",
+      "status": "in_progress",
+      "conclusion": null
+    }
+  ]
+}

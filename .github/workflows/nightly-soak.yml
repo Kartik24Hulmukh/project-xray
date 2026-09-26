@@ -3,6 +3,13 @@ on:
   schedule:
     - cron: '23 3 * * *'
   workflow_dispatch:
+    inputs:
+      waves:
+        description: 'Number of deterministic soak waves (20 normal, 60 leak investigation)'
+        required: false
+        default: '20'
+        type: choice
+        options: ['20', '60']
   pull_request:
     paths:
       - '.github/workflows/nightly-soak.yml'
@@ -58,7 +65,7 @@ jobs:
           XRAY_TORTURE_PG_ADMIN_URL: postgresql://xray:xray_ci_password@127.0.0.1:5432/xray_ci?sslmode=disable
         run: |
           set -o pipefail
-          python3 scripts/human_persona_torture.py --backend ${{ matrix.backend }} --seed 20260925 --concurrency 100 --waves 20 --output artifacts/nightly-soak/receipt.json 2>&1 | tee artifacts/nightly-soak/run.log
+          python3 scripts/human_persona_torture.py --backend ${{ matrix.backend }} --seed 20260925 --concurrency 100 --waves ${{ inputs.waves || '20' }} --output artifacts/nightly-soak/receipt.json 2>&1 | tee artifacts/nightly-soak/run.log
       - name: Retain receipts even on failure
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

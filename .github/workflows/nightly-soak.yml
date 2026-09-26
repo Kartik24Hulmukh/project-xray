@@ -8,6 +8,9 @@ on:
       - '.github/workflows/nightly-soak.yml'
       - 'scripts/human_persona_torture.py'
       - 'tests/test_torture*.py'
+      - 'app/**'
+      - 'requirements.txt'
+      - 'Dockerfile'
 permissions:
   contents: read
 concurrency:

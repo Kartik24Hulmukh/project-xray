@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-09-26T12:25:26Z",
+  "scope": "100-persona human torture under 100x concurrency",
+  "seed": 20260926,
+  "personas_emulated": 120,
+  "concurrency": 100,
+  "total_requests": 1425,
+  "duration_seconds": 1.93,
+  "throughput_rps": 738.3,
+  "latency_ms": {
+    "p50": 94.03,
+    "p95": 181.14,
+    "p99": 238.96,
+    "min": 1.29,
+    "max": 307.56
+  },
+  "status_distribution": {
+    "404": 375,
+    "200": 675,
+    "201": 225,
+    "400": 75,
+    "401": 75
+  },
+  "operational_baselines": {
+    "zero_unhandled_panics": true,
+    "no_server_crash": true,
+    "tracebacks_in_log": 0,
+    "peak_rss_kb": 54956,
+    "peak_rss_bounded_128mb": true,
+    "rss_floor_kb": 32600,
+    "startup_ready_s": 0.162,
+    "rss_ceiling_kb": 54956,
+    "rss_settled_kb": 54956,
+    "rss_growth_after_recovery_kb": 22356,
+    "rss_sampled_min_kb": 32600,
+    "rss_sampled_max_kb": 51696,
+    "rss_samples": 35,
+    "rss_settled_bounded_128mb": true,
+    "waves": 5,
+    "rss_settled_per_wave_kb": [
+      50844,
+      52672,
+      54040,
+      54688,
+      54956
+    ],
+    "rss_wave_growth_kb": 4112,
+    "rss_no_unbounded_growth": true,
+    "health_recovery_ms": 0.8656196296215057,
+    "health_recovery_sub_200ms": true,
+    "ready_recovery_ms": 1.6872920095920563,
+    "ready_recovery_sub_200ms": true,
+    "readyz_probes_total": 150,
+    "readyz_probes_expected": 150,
+    "readyz_status_breakdown": {
+      "200": 150
+    },
+    "readyz_reason_breakdown": {
+      "ok": 150
+    },
+    "readyz_unexpected_status": [],
+    "readyz_unexpected_reasons": [],
+    "readyz_determinism_invariant": true
+  },
+  "pass": true
+}

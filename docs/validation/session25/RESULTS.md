@@ -48,3 +48,6 @@ python3 scripts/check_release_claims.py --json
 Local environment: Linux, CPython 3.14; PostgreSQL 17.11 extracted from Debian packages. CI targets CPython 3.13 / PostgreSQL 16.4. Local pgserver package unavailable; no fake PG substitute used. User-level pip reported pre-existing unrelated logfire/OTEL version conflicts; use a dedicated virtual environment for reproducibility. Full dependency capture supplied separately.
 
 Security: supplied GitHub token is exposed in prompt/replay. Rotate it immediately. No token written into repository, remote URL, receipts or git config.
+
+## Final committed-tree verification
+Implementation `572262b`: 454 tests run in 42.775 s, 19 skipped, zero failures/errors; 28 targeted torture contracts passed. Compressed full baseline/committed unit logs and JSON verification summary retained. Draft PR: https://github.com/Kartik24Hulmukh/project-xray/pull/72. No merge; integration branch remains a16cb9c. Nightly schedule becomes active only after workflow reaches default branch.

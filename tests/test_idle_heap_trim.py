@@ -47,5 +47,50 @@ class IdleHeapTrimTests(unittest.TestCase):
             trim.assert_called_once()
 
 
+    def _make_server(self):
+        srv = server.BoundedHTTPServer.__new__(server.BoundedHTTPServer)
+        import threading
+        srv._inflight = 0
+        srv._inflight_lock = threading.Lock()
+        srv._idle = threading.Event()
+        srv._idle.set()
+        srv._last_request_start = server.time.monotonic()
+        srv._reap_stop = threading.Event()
+        srv._reap_thread = None
+        return srv
+
+    def test_reaper_trims_after_quiet_window_elapses(self):
+        srv = self._make_server()
+        srv._last_request_start = server.time.monotonic() - 10.0
+        with mock.patch.dict(os.environ, {
+            'XRAY_HEAP_REAP_INTERVAL_S': '0.05',
+            'XRAY_HEAP_REAP_QUIET_S': '0.05',
+        }):
+            with mock.patch.object(server, '_MALLOC_TRIM', lambda n: 1):
+                srv._start_heap_reaper()
+                import time as _time
+                deadline = _time.monotonic() + 2.0
+                while server._last_trim[0] == 0.0 and _time.monotonic() < deadline:
+                    _time.sleep(0.05)
+                srv._reap_stop.set()
+                srv._reap_thread.join(timeout=1.0)
+        self.assertGreater(server._last_trim[0], 0.0)
+
+    def test_reaper_never_trims_while_request_in_flight(self):
+        srv = self._make_server()
+        srv._inflight = 1  # a request is in flight for the whole window
+        with mock.patch.dict(os.environ, {
+            'XRAY_HEAP_REAP_INTERVAL_S': '0.05',
+            'XRAY_HEAP_REAP_QUIET_S': '0.05',
+        }):
+            with mock.patch.object(server, '_trim_heap_when_idle') as trim:
+                srv._start_heap_reaper()
+                import time as _time
+                _time.sleep(0.3)
+                srv._reap_stop.set()
+                srv._reap_thread.join(timeout=1.0)
+        trim.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

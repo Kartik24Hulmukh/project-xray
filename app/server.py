@@ -2087,14 +2087,49 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         self._idle = threading.Event()
         self._idle.set()
         self.draining = False
+        self._last_request_start = time.monotonic()
+        self._reap_stop = threading.Event()
+        self._reap_thread = None
         super().__init__(address, handler)
         try:
             self.telemetry = telemetry.configured()
         except Exception:
             super().server_close()
             raise
+        self._start_heap_reaper()
+
+    def _start_heap_reaper(self):
+        """H6: trim glibc arenas on a bounded cadence, not only when fully idle.
+
+        The soak harness starts the next wave immediately, so the server is
+        never idle between waves and the ``request_finished`` idle-trim never
+        fires mid-soak; settled RSS then climbs monotonically wave over wave.
+        This daemon wakes on a short interval and trims only after a quiet
+        window with zero in-flight requests, so a genuine leak (live, still
+        referenced allocations) is never hidden -- only pages already freed
+        by glibc but not yet returned to the OS are released.
+        """
+        if _MALLOC_TRIM is None:
+            return
+        interval = max(0.05, float(os.getenv('XRAY_HEAP_REAP_INTERVAL_S', '1.0')))
+        quiet = max(0.0, float(os.getenv('XRAY_HEAP_REAP_QUIET_S', '0.5')))
+
+        def _reap_loop():
+            while not self._reap_stop.wait(interval):
+                if self.inflight() > 0:
+                    continue
+                with self._inflight_lock:
+                    last_start = self._last_request_start
+                if time.monotonic() - last_start < quiet:
+                    continue
+                _trim_heap_when_idle()
+
+        t = threading.Thread(target=_reap_loop, name='xray-heap-reaper', daemon=True)
+        self._reap_thread = t
+        t.start()
 
     def server_close(self):
+        self._reap_stop.set()
         super().server_close()
         observer = getattr(self, "telemetry", None)
         if observer is not None:
@@ -2126,6 +2161,7 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         with self._inflight_lock:
             self._inflight += 1
             self._idle.clear()
+            self._last_request_start = time.monotonic()
 
     def request_finished(self):
         went_idle = False

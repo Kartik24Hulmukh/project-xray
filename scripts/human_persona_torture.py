@@ -27,6 +27,7 @@ import json
 import os
 from pathlib import Path
 import random
+import re
 import socket
 import statistics
 import subprocess
@@ -335,19 +336,36 @@ def recovery_passes(waves):
         for wave in waves for probe in (wave["healthz"], wave["readyz"]))
 
 
+def _is_loopback_dsn(admin_url):
+    """Fail closed: the DSN must name loopback before any driver is imported."""
+    if not admin_url:
+        return False
+    host = None
+    try:
+        from psycopg2.extensions import parse_dsn
+        host = parse_dsn(admin_url).get("host")
+    except Exception:
+        match = re.search(r"(?:^|[ ?&])host=([^ &]+)", admin_url)
+        if match:
+            host = match.group(1)
+        else:
+            parsed = urllib.parse.urlsplit(admin_url)
+            host = parsed.hostname
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
 @contextmanager
 def isolated_database(backend):
     """PG is opt-in, loopback only, and always uses a new disposable database."""
     if backend == "sqlite":
         yield None
         return
+    admin_url = os.environ.get("XRAY_TORTURE_PG_ADMIN_URL", "")
+    if not _is_loopback_dsn(admin_url):
+        raise ValueError("PostgreSQL torture requires an explicit loopback admin URL")
     import psycopg2
     from psycopg2 import sql
-    from psycopg2.extensions import parse_dsn, make_dsn
-    admin_url = os.environ.get("XRAY_TORTURE_PG_ADMIN_URL", "")
-    params = parse_dsn(admin_url) if admin_url else {}
-    if params.get("host") not in {"localhost", "127.0.0.1", "::1"}:
-        raise ValueError("PostgreSQL torture requires an explicit loopback admin URL")
+    from psycopg2.extensions import make_dsn
     name = "xray_torture_" + uuid.uuid4().hex
     conn = psycopg2.connect(admin_url, connect_timeout=5)
     conn.autocommit = True

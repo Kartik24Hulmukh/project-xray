@@ -1,5 +1,7 @@
 """Failure-oriented contracts for full-wave soak evidence and DB isolation."""
+import importlib.util
 import os
+import sys
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -39,6 +41,15 @@ class DatabaseIsolationTests(unittest.TestCase):
                     with h.isolated_database("postgres"):
                         self.fail("unsafe DSN accepted")
 
+    def test_pg_rejects_remote_dsn_without_a_driver_installed(self):
+        """Fail closed even if psycopg2 is absent: no driver import before the host check."""
+        with patch.dict(sys.modules, {"psycopg2": None, "psycopg2.extensions": None}):
+            with patch.dict(os.environ, {"XRAY_TORTURE_PG_ADMIN_URL": "postgresql://example.com/prod"}):
+                with self.assertRaises(ValueError):
+                    with h.isolated_database("postgres"):
+                        self.fail("unsafe DSN accepted")
+
+    @unittest.skipUnless(importlib.util.find_spec("psycopg2"), "psycopg2 not installed")
     def test_pg_database_dropped_even_if_run_raises(self):
         import psycopg2
         with patch.dict(os.environ, {"XRAY_TORTURE_PG_ADMIN_URL": "postgresql://xray@127.0.0.1/postgres"}):

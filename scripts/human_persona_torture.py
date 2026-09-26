@@ -517,6 +517,12 @@ def run(args, database_url=None):
                 torture_duration += time.perf_counter() - wave_t0  # throughput covers every wave
                 recovery_waves.append({"wave": wave, "healthz": recovery_probe(base_url, "/healthz"),
                                        "readyz": recovery_probe(base_url, "/readyz")})
+                # H6: give the server's bounded heap reaper a chance to observe a quiet
+                # window (XRAY_HEAP_REAP_QUIET_S, default 0.5s) before we sample settled
+                # RSS. Without this, back-to-back waves never let it fire and the sample
+                # 	measures un-reaped glibc arena pages, not a real leak. The sleep lives in
+                # the harness, not in the server: production readers must never wait for it.
+                time.sleep(float(os.getenv("XRAY_TORTURE_INTERWAVE_SLEEP_S", "0.6")))
                 settled_per_wave_kb.append(get_current_rss_kb(proc.pid))
             sampled = sampler.stop()
             health_rec_ms = max(w["healthz"]["latency_ms"] for w in recovery_waves)
